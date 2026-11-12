@@ -80,6 +80,9 @@ extern Settings g_settings;
 
 void settings_load(void);
 void settings_save(void);
+// The battery saver's settings (lower internal resolution with FSR 1, no extra frames or SMAA): the Steam Deck's
+// defaults and a one-press preset in the menu (runtime/settings.c says what and why)
+void settings_battery_saver(void);
 // The language code to serve the game ("es", "en-US", ...): the setting, or the host locale for LANG_AUTO
 const char *settings_language(void);
 // That code's name for the menu ("Spanish")

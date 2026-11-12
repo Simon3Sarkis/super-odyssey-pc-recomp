@@ -43,6 +43,21 @@ Settings g_settings = {
 };
 
 volatile bool g_app_unfocused;
+
+// The battery saver (Steam Deck's defaults, and the menu's Performance > Battery saver): less work per frame. Odyssey's
+// gameplay steps once per drawn frame, so a lower frame rate cap would slow the game down, not save power - the savings
+// come from the picture instead: 75% of the display (960 x 600 on a Deck) upscaled with FSR 1, no SMAA, no extra
+// frames (120 FPS, interpolation), 4x anisotropic filtering, the shorter warm-up at start.
+void settings_battery_saver(void) {
+    g_settings.res_mode = RES_Q75;
+    g_settings.upscaler = UPSCALE_SHARP;
+    g_settings.antialias = AA_OFF;
+    g_settings.frame_rate = FPS_60;
+    g_settings.frame_interp = false;
+    g_settings.aniso = 4;
+    g_settings.dlss_mode = DLSS_OFF;
+    g_settings.warmup = WARMUP_NORMAL;
+}
 static const char *const warmups[WARMUP_COUNT] = {"auto", "normal", "long"};
 
 void settings_warmup_budget(unsigned *ms, unsigned *mb) {
@@ -143,9 +158,8 @@ void settings_load(void) {
     static bool loaded;
     if (loaded) return;
     loaded = true;
-    // Steam Deck: Dynamic resolution unless chosen otherwise - the game's 1600 x 900 or less, lowered while the GPU can't
-    // hold 60 fps (the screen has 1280 x 800)
-    if (plat_is_steam_deck()) g_settings.res_mode = RES_DYNAMIC;
+    // Steam Deck: the battery saver's settings unless chosen otherwise (the settings file, read below, wins)
+    if (plat_is_steam_deck()) settings_battery_saver();
     FILE *f = fopen(SETTINGS_FILE, "r");
     if (!f && !getenv("ODYSSEY_SETTINGS")) f = fopen("odyssey.ini", "r");  // (the settings of the earlier builds)
     if (!f && !getenv("ODYSSEY_SETTINGS")) f = fopen("larecomp.ini", "r");

@@ -705,6 +705,15 @@ static void tab_performance(void) {
                "Available with Frame rate set to 60 FPS and DLSS off. Adds an image between game frames, targeting 120 FPS "
                "on a 120 Hz or faster display. Busy scenes can temporarily fall back to 60 FPS.");
 #endif
+    opt_section("Power");
+    if (opt_action("Battery saver", "",
+                   "Sets lighter settings for handhelds and laptops on battery: 75% internal resolution upscaled with FSR 1, "
+                   "no SMAA, no 120 FPS or interpolation, 4x texture filtering. The game itself still runs at its normal "
+                   "speed. On a Steam Deck, also lower the power limit in the Quick Access menu (Performance > TDP Limit) "
+                   "for the biggest savings. Some changes apply at the next start.")) {
+        settings_battery_saver();
+        settings_save();
+    }
     opt_section("Overlay");
     opt_toggle("Show FPS", &g_settings.show_fps, false, "Shows the frame rate in the top right corner.");
     opt_toggle("Advanced performance overlay", &g_settings.performance_overlay, false,

@@ -618,6 +618,7 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
     // The OS's page write tracking (exec.c vk_pages_changed, shared with the vertex cache): texture memory the CPU
     // hasn't written since the last check is not hashed at all (dynamic textures were fully hashed every frame,
     // ~2.4 MB a frame in the overworld). The periodic full hash stays as a safety net. ODYSSEY_VK_TEX_WATCH=0: off.
+    bool by_watch = false;  // (made full because the pages were written)
     static int watch = -1;
     if (watch < 0) { const char *e = getenv("ODYSSEY_VK_TEX_WATCH"); watch = !e || atoi(e) != 0; }
     if (watch && !always_full) {
@@ -630,6 +631,11 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
                 if (!periodic) { prof_tex_watch_skips++; return; }
                 if (b->dynamic) full_hash_budget -= total;  // (the others took theirs above)
             }
+            // Written since the last check: compared whole, not by its sampled bytes - a texture the CPU changes in a
+            // few spots (the poison's paint map, PaintObj: Mario hurt by poison the screen no longer showed, or never
+            // showed - issue #3) kept its sampled bytes and stayed stale until the periodic full hash, which a busy
+            // frame's budget can put off
+            if (ch > 0 && !full) full = by_watch = true;
         }
     }
     if (!full) {
@@ -640,7 +646,14 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
     prof_tex_full++; prof_tex_full_bytes += total; if (b->dynamic) prof_tex_dyn++;
     uint64_t h = hash_full(mem, total);
     b->full_frame = frame;
+    uint64_t old_sample = b->sample_hash;
     b->sample_hash = fnv_sample(mem, total);
+    if (by_watch && b->uploaded && h != b->data_hash && b->sample_hash == old_sample) {
+        static int n;  // (what the sampled check alone would have missed)
+        if (n++ < 30) LOG("[tex] a change the sampled check missed: %p %ux%u f%#x addr %llx (%llu KB, frame %llu)\n", (void *)t,
+                          t->width, t->height, t->format, (unsigned long long)t->addr, (unsigned long long)(total >> 10),
+                          (unsigned long long)frame);
+    }
     if (b->uploaded && h == b->data_hash && !repatch) return;
     if (b->uploaded && h != b->data_hash) b->dynamic = true;
     if (!b->uploaded || h != b->data_hash || look)  // (new contents: the button icon sheet? looked at deswizzled, below)
@@ -671,7 +684,15 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
                 if (linear) for (uint32_t y = 0; y < l.hb; y++) memcpy(blocks + (uint64_t)y * l.wb * 16, src + (uint64_t)y * t->stride, l.wb * 16);
                 else tegra_deswizzle(src, blocks, l.wb, l.hb, 1, 16, l.block_height_log2, l.block_depth_log2);
                 VkSpan s = vk_transient((uint64_t)l.w * l.h * 4, 16);
+                uint32_t bad = astc_bad_blocks;
                 astc_decode_ldr(blocks, l.w, l.h, b->astc_bw, b->astc_bh, b->astc_srgb, s.ptr);
+                if (astc_bad_blocks != bad) {  // (magenta in it: HDR content or error blocks - not decoded here)
+                    static int nlog;
+                    if (nlog++ < 40)
+                        LOG("[tex] ASTC %ux%u (%ux%u blocks%s) level %u: %u blocks magenta (HDR or invalid), texture at %llx\n",
+                            l.w, l.h, b->astc_bw, b->astc_bh, b->astc_srgb ? ", sRGB" : "", (unsigned)lv,
+                            (unsigned)(astc_bad_blocks - bad), (unsigned long long)t->addr);
+                }
                 free(blocks);
                 VkBufferImageCopy rg = {.bufferOffset = s.off, .bufferRowLength = l.w, .bufferImageHeight = l.h,
                                         .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, lv, layer, 1},

@@ -55,6 +55,7 @@ static void shader_time_log(const char *what, uint64_t addr, uint64_t t0) {
 static uint64_t op_counts[CMD_COUNT];
 bool g_debug_frame;
 static char stats_text[2048];
+static bool log_linear(void);
 void vk_collect_dead(void);
 
 // ================================================================== submissions
@@ -1558,6 +1559,12 @@ static void begin_pass(void) {
         pass_color[i] = VK_FORMAT_UNDEFINED;
         if (!t) continue;
         renderer_mark_gpu_owned(t);
+        if ((t->flags & 0x10) && log_linear()) {  // (a linear texture drawn into: the CPU may read it - PaintObj)
+            static int n;
+            if (n++ < 200) LOG("[linear] draw into linear %p addr %llx %ux%u f%#x stride %llu (frame %llu)\n", (void *)t,
+                               (unsigned long long)t->addr, t->width, t->height, t->format, (unsigned long long)t->stride,
+                               (unsigned long long)renderer_present_count());
+        }
         if ((t->target == 8 || t->target == 9) && getenv("ODYSSEY_LOG_CUBES")) {  // (who draws into cube maps)
             static int n;
             const NvnTextureView *cv = &st.rt.cview[i];
@@ -6329,8 +6336,23 @@ static void copy_buffer_to_texture(uint64_t src, const TexRefRec *dst) {
     vk_copy_buffer_to_image(cb, b, s.buf, &c);  // (guest texels; a scaled allocation gets them scaled in)
 }
 
+// What the GPU writes that the CPU may read - draws into linear textures, copies to / from them, texture -> buffer
+// copies (the poison's PaintObj reads its paint map on the CPU: al::getColorFromLinearTexture; issue #3): logged, the
+// first 200 of each, so a player's log shows the path. ODYSSEY_LOG_LINEAR=0: off.
+static bool log_linear(void) {
+    static int on = -1;
+    if (on < 0) on = !getenv("ODYSSEY_LOG_LINEAR") || atoi(getenv("ODYSSEY_LOG_LINEAR")) != 0;
+    return on;
+}
+
 static void copy_texture_to_buffer(const TexRefRec *src, uint64_t dst) {
     NvnTexture *t = (NvnTexture *)(uintptr_t)src->tex;
+    if (log_linear()) {
+        static int n;
+        if (n++ < 200 && t) LOG("[linear] texture %p %ux%u f%#x%s -> buffer %llx (frame %llu)\n", (void *)t, t->width, t->height,
+                                t->format, t->flags & 0x10 ? " linear" : "", (unsigned long long)dst,
+                                (unsigned long long)renderer_present_count());
+    }
     if (!t || !dst || dst < HEAP_BASE) return;
     t = alias_read(t);
     vk_end_pass();
@@ -6383,6 +6405,13 @@ static void copy_texture(const TexRefRec *src, const TexRefRec *dst, uint64_t fl
     snap_reason = "tex2tex"; snapshots_invalidate(NULL);
     NvnTexture *st_ = (NvnTexture *)(uintptr_t)src->tex, *dt = (NvnTexture *)(uintptr_t)dst->tex;
     if (!st_ || !dt) return;
+    if (((st_->flags | dt->flags) & 0x10) && log_linear()) {
+        static int n;
+        if (n++ < 200) LOG("[linear] copy %p %ux%u f%#x%s -> %p addr %llx %ux%u f%#x%s (frame %llu)\n", (void *)st_, st_->width,
+                           st_->height, st_->format, st_->flags & 0x10 ? " linear" : "", (void *)dt, (unsigned long long)dt->addr,
+                           dt->width, dt->height, dt->format, dt->flags & 0x10 ? " linear" : "",
+                           (unsigned long long)renderer_present_count());
+    }
     vk_end_pass();
     if (dl_on == 2) renderer_flush();  // (ODYSSEY_VK_DEVLOST_TRACE=2: each copy its own submission, waited on)
     gp_mark(vk_cmd(), "copy texture %ux%u -> %ux%u", st_->width, st_->height, dt->width, dt->height);

@@ -1,21 +1,24 @@
-# Super Odyssey PC Recomp on Linux and Steam Deck
+# Super Odyssey PC Recomp on Linux and Steam Deck (experimental)
+
+> **Experimental.** The Linux and Steam Deck version is new and much less tested than the Windows one: expect rough
+> edges, and please report what you find (see the end of this page).
 
 The Linux version is an AppImage: one file that runs on SteamOS and on desktop distributions (glibc 2.35 or newer:
 Ubuntu 22.04, Debian 12, Fedora 36, Arch, SteamOS, ...). It's built with `make appimage` (`tools/linux/appimage.sh`,
 in Ubuntu 22.04 containers).
 
 You need a Vulkan 1.3 driver (Mesa RADV / ANV / NVK, or NVIDIA's), a CPU with AVX2 (2013 or newer), about 12 GB of free
-space, and your own copy of Super Mario Odyssey (1.0.0 as NSP, XCI or an extracted folder, optionally the 1.4.1
-update) with the prod.keys from your own console.
+space, and the extracted **`exefs`** and **`romfs`** folders of your own copy of Super Mario Odyssey (version 1.0.0, or
+1.4.1 with the update already applied).
 
 ## Installing
 
     chmod +x Super.Odyssey.PC.Recomp-<version>-linux-x86_64.AppImage
     ./Super.Odyssey.PC.Recomp-<version>-linux-x86_64.AppImage
 
-The installer asks for your game file, the optional update, prod.keys (found by itself next to the game file or in
-`~/.switch`) and where to install. Then it reads your game, builds the game code for your PC (a few minutes) and
-compiles every shader, once.
+The installer asks for the folder that holds your game's extracted `exefs` and `romfs` folders, and where to install.
+Then it builds the game code for your PC (about 20-25 minutes on a Steam Deck, less on a desktop) and compiles every
+shader, once.
 
 If the AppImage won't start with a FUSE error, install your distribution's `fuse3` package, or run it with
 `APPIMAGE_EXTRACT_AND_RUN=1`.
@@ -32,13 +35,14 @@ Do the install once in **Desktop Mode** (the file pickers need it), then play fr
 3. Add the AppImage to Steam (Steam > *Add a Non-Steam Game*), then play it from Gaming Mode.
 
 On a Steam Deck the game starts with the **battery saver** settings: 75% internal resolution (960 x 600) upscaled with
-AMD FSR 1, no SMAA, no 120 FPS or interpolation, 4x texture filtering. The menu's Performance tab has a *Battery
+AMD FSR 1, no SMAA, 60 FPS without interpolation, 4x texture filtering. The menu's Performance tab has a *Battery
 saver* button to apply them again after changing things. For the biggest savings, also lower the power limit in the
 Deck's Quick Access menu (Performance > TDP Limit, e.g. 8-10 W). Don't use the Deck's frame limit below 60: Odyssey's
 gameplay runs one step per frame, so a 30 or 40 FPS limit slows the game itself down.
 
-**90 FPS** (Performance > Frame rate, experimental) draws up to 90 frames a second with gameplay still at 60. It is
-for a 90 Hz screen: a Steam Deck OLED, or a faster external display (the LCD Deck's screen shows 60 at most). On an LCD
+**90 and 120 FPS** (Performance > Frame rate: 60, 90 or 120, experimental) draw up to 90 or 120 frames a second with
+gameplay still at 60. They are for a screen that fast: 90 Hz on a Steam Deck OLED, or a faster external display (the
+LCD Deck's screen shows 60 at most). On an LCD
 Deck in Cap Kingdom with the battery saver settings it measured about 78 FPS walking and 55 in the busiest town view,
 with gameplay kept at full speed. It uses noticeably more power than 60 FPS.
 
@@ -62,4 +66,4 @@ started, then restarts. It uses the system's `curl`, and the AppImage's folder m
 ## Reporting a problem
 
 Open an issue with your distribution or SteamOS version, GPU and driver version, what happened, and the log file.
-Never attach game files or keys.
+Never attach game files.

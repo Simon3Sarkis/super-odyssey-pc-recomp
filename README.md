@@ -24,7 +24,7 @@ reimplemented on the PC, with Vulkan for graphics.
 - **Native 90 or 120 FPS** (experimental) or frame interpolation, anisotropic filtering, smooth gradients
 - Keyboard and controller rebinding, RomFS mods, an in-game settings menu, and **built-in updates** from this page
 
-Windows 10 / 11 (x64) only for now.
+Windows 10 / 11 (x64). **Linux and Steam Deck: experimental** - an AppImage, see [docs/linux.md](docs/linux.md).
 
 ## Install
 
@@ -68,7 +68,8 @@ This is a preview. Known problems and things not done yet:
 - **Windows Defender** may flag the new, unsigned program by its machine-learning guess (a `!ml` detection) - it
   decrypts a file, builds code and starts helper programs, which looks unusual. Please report it as a false positive at
   https://www.microsoft.com/wdsi/filesubmission and open an issue with the detection name.
-- **Windows only.** A CPU with AVX2 and a Vulkan 1.3 GPU are required.
+- **Linux and Steam Deck are experimental**: less tested than Windows ([docs/linux.md](docs/linux.md)). A CPU with
+  AVX2 and a Vulkan 1.3 GPU are required everywhere.
 - Graphics glitches can show up in places nobody has tested yet - please report them with a screenshot.
 
 ## Reporting a problem

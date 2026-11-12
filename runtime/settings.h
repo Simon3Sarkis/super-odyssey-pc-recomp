@@ -27,7 +27,9 @@ enum { FPS_60 = 0, FPS_90 = 1, FPS_120 = 2, FPS_COUNT };
 // at the sides (runtime/hle/odyssey_wide.c)
 enum { ASPECT_16_9 = 0, ASPECT_FILL = 1 };
 // Button prompts: Auto follows the device used last (keyboard / mouse or controller)
-enum { PROMPTS_AUTO = 0, PROMPTS_CONTROLLER = 1, PROMPTS_KEYBOARD = 2, PROMPTS_COUNT };
+// (Controller: the connected controller's own - Xbox, PlayStation, or the game's; the others always those)
+enum { PROMPTS_AUTO = 0, PROMPTS_CONTROLLER = 1, PROMPTS_KEYBOARD = 2, PROMPTS_SWITCH, PROMPTS_XBOX, PROMPTS_PLAYSTATION,
+       PROMPTS_COUNT };
 // System language served to the game (runtime/services/am.c GetDesiredLanguage, services/hid_set.c GetLanguageCode):
 // the game picks its text language from it, as it would from the Switch's own system setting. LANG_AUTO follows the
 // host locale ($LC_ALL / $LC_MESSAGES / $LANG); the rest are the codes of the languages the game has text for.
@@ -51,6 +53,7 @@ typedef struct {
     bool reverb;         // the audio renderer's reverb effect
     bool movie_audio;
     bool show_fps, performance_overlay;
+    bool motion;         // the controller's gyro / accelerometer as the Switch's motion sensor (runtime/hle/input.c)
     bool rumble;         // the controller's vibration (the game's HD rumble: runtime/hle/input.c input_vibration)
     int stick_deadzone;  // percent of a controller stick's travel that counts as rest (runtime/hle/input.c), 0: none
     bool mouse_camera;   // the mouse turns the camera (the right stick; the pointer is held in the window while playing)

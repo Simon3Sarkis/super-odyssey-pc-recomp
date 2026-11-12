@@ -103,8 +103,8 @@ the right explains the selected setting.
 - **Performance**: 90 or 120 FPS (native) or 120 interpolated, shader preloading and warm-up, FPS counter and performance
   overlay, compile shaders again at the next start
 - **Audio**: volume, reverb, movie audio, mute in background
-- **Controls**: language, vibration, stick deadzone, mouse camera (sensitivity, invert), button prompts (keyboard /
-  controller), skip controller tips, key and button rebinding
+- **Controls**: language, motion controls, vibration, stick deadzone, mouse camera (sensitivity, invert), button
+  prompts (keyboard, Xbox, PlayStation, Switch), skip controller tips, key and button rebinding
 - **Mods**: switch RomFS mods on and off
 - **Updates**: this version, check / install updates, the project page
 
@@ -126,8 +126,12 @@ The mouse turns the camera while you play: the pointer stays in the window until
 another window. Sensitivity, invert up / down, or switching it off: menu > Controls > Mouse.
 
 The game's button icons follow what you play with: after a key press or mouse movement they show the keys you bound
-(WASD for moving, a mouse for the camera), after a controller press the controller's buttons. Menu > Controls >
-*Button prompts* can fix them to one or the other.
+(WASD for moving, a mouse for the camera), after a controller press that controller's own buttons: Xbox (A B X Y,
+LB / RB / LT / RT), PlayStation (cross circle square triangle, L1 / R1 / L2 / R2) or the Switch's. With two controllers
+connected, the one you press a button on takes over. Menu > Controls > *Button prompts* can fix them to one style.
+
+Motion controls (shake to throw Cappy at a target, and the game's other motion moves) use the controller's gyro and
+accelerometer: PlayStation and Switch Pro controllers. Menu > Controls > *Motion controls* turns them off.
 
 ## Files
 

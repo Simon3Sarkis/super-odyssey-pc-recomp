@@ -913,6 +913,10 @@ static void tab_about(void) {
     hint("The game's text language, as its own system setting. Applies the next time the game starts.");
     ImGui::Spacing();
     header("Controller");
+    toggle("Motion controls", &g_settings.motion);
+    hint("The controller's gyro and accelerometer for the game's motion moves: shake it to throw Cappy at a target, "
+         "spin him, or tilt where the game asks. Needs a controller with motion sensors (PlayStation, Switch Pro, "
+         "Steam Deck).");
     toggle("Vibration", &g_settings.rumble);
     hint("The controller's rumble, as the game sends it (the Switch's HD rumble on the controller's motors).");
     {
@@ -939,12 +943,14 @@ static void tab_about(void) {
     toggle("Invert mouse up / down", &g_settings.mouse_invert_y);
     hint("Moving the mouse up turns the camera down instead.");
     {
-        static const char *const names[PROMPTS_COUNT] = {"Auto", "Controller", "Keyboard and mouse"};
+        static const char *const names[PROMPTS_COUNT] = {"Auto", "Controller", "Keyboard and mouse", "Switch", "Xbox",
+                                                         "PlayStation"};
         int i = g_settings.prompts >= 0 && g_settings.prompts < PROMPTS_COUNT ? g_settings.prompts : PROMPTS_AUTO;
         if (choice("Button prompts", &i, names, PROMPTS_COUNT)) g_settings.prompts = i;
     }
-    hint("The game's button icons: Auto shows the keys you bound (and the mouse for the camera) after you use the "
-         "keyboard or mouse, and the controller's buttons after you use a controller.");
+    hint("The game's button icons. Auto switches as you play: the keys you bound (and the mouse for the camera) after "
+         "you use the keyboard or mouse, the controller's own buttons (Xbox, PlayStation or Switch) after you use a "
+         "controller. Controller always shows the connected controller's; Switch, Xbox and PlayStation always those.");
     toggle("Skip controller tips", &g_settings.skip_intro);
     hint("Leaves out the Joy-Con instructions screen's wait before the title screen. Applies at the next start.");
     ImGui::Spacing();

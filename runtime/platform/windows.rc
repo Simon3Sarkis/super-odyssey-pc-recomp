@@ -1,0 +1,32 @@
+// The .exe's icon (Makefile: windres -I docs/icon). ID 1: Explorer and the taskbar use the first icon resource.
+1 ICON "icon.ico"
+
+// The application manifest (runs as the user, Windows 10 / 11): RT_MANIFEST, ID 1
+1 24 "runtime/platform/app.manifest"
+
+// What Explorer's properties and the Task Manager show
+1 VERSIONINFO
+FILEVERSION 0, 1, 0, 0
+PRODUCTVERSION 0, 1, 0, 0
+FILEOS 0x40004
+FILETYPE 0x1
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "Super Odyssey PC Recomp contributors"
+            VALUE "FileDescription", "Super Odyssey PC Recomp"
+            VALUE "ProductName", "Super Odyssey PC Recomp"
+            VALUE "InternalName", "SuperOdysseyRecomp"
+            VALUE "FileVersion", "0.1.0"
+            VALUE "ProductVersion", "0.1.0"
+            VALUE "OriginalFilename", "SuperOdysseyRecomp.exe"
+            VALUE "LegalCopyright", "MIT License. Not affiliated with Nintendo."
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

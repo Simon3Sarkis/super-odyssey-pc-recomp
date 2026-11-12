@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 360" width="1280" height="360" role="img" aria-label="Super Odyssey PC Recomp">
+  <!-- README banner: the installer's sky and brick ground (runtime/ui/backdrop.mm), the icon's pipe and star
+       (tools/make_icon.py) and the palette of runtime/ui/theme.h. Original artwork, no game assets. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6FB4FF"/>
+      <stop offset="1" stop-color="#2F74D8"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="360" fill="url(#sky)"/>
+  <!-- clouds -->
+  <g fill="#FCFCFF">
+    <rect x="80" y="50" width="120" height="28"/><rect x="100" y="34" width="80" height="20"/>
+    <rect x="1040" y="70" width="140" height="30"/><rect x="1064" y="52" width="92" height="22"/>
+  </g>
+  <!-- brick ground -->
+  <rect y="300" width="1280" height="60" fill="#C45C28"/>
+  <rect y="300" width="1280" height="5" fill="#EC945C"/>
+  <g fill="#602810">
+    <rect y="328" width="1280" height="4"/>
+    <rect x="60" y="305" width="4" height="23"/><rect x="220" y="305" width="4" height="23"/><rect x="380" y="305" width="4" height="23"/>
+    <rect x="540" y="305" width="4" height="23"/><rect x="700" y="305" width="4" height="23"/><rect x="860" y="305" width="4" height="23"/>
+    <rect x="1020" y="305" width="4" height="23"/><rect x="1180" y="305" width="4" height="23"/>
+    <rect x="140" y="332" width="4" height="28"/><rect x="300" y="332" width="4" height="28"/><rect x="460" y="332" width="4" height="28"/>
+    <rect x="620" y="332" width="4" height="28"/><rect x="780" y="332" width="4" height="28"/><rect x="940" y="332" width="4" height="28"/>
+    <rect x="1100" y="332" width="4" height="28"/>
+  </g>
+  <!-- the pipe -->
+  <rect x="166" y="190" width="116" height="110" fill="#083012"/>
+  <rect x="174" y="190" width="100" height="110" fill="#3BC45A"/>
+  <rect x="188" y="190" width="16" height="110" fill="#96EC82"/><rect x="212" y="190" width="5" height="110" fill="#96EC82"/>
+  <rect x="244" y="190" width="20" height="110" fill="#106026"/>
+  <rect x="144" y="140" width="160" height="58" fill="#083012"/>
+  <rect x="151" y="147" width="146" height="44" fill="#3BC45A"/>
+  <rect x="164" y="154" width="16" height="30" fill="#96EC82"/><rect x="188" y="154" width="5" height="30" fill="#96EC82"/>
+  <rect x="264" y="154" width="22" height="30" fill="#106026"/>
+  <!-- the star -->
+  <polygon points="224,40 238,80 280,80 246,104 259,145 224,120 189,145 202,104 168,80 210,80" fill="#F5C542" stroke="#9A6010" stroke-width="6" stroke-linejoin="round"/>
+  <!-- the name -->
+  <text x="360" y="190" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="78" font-weight="700" fill="#FFFFFF">Super Odyssey PC Recomp</text>
+  <text x="364" y="240" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="30" fill="#E8F0FF">A native PC port by static recompilation - bring your own game</text>
+</svg>

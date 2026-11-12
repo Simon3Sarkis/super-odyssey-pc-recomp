@@ -254,17 +254,19 @@ static void text(Canvas *c, const char *s, float cx, float cy, float maxw, float
     }
 }
 
-// a key's name for its cap: short words, arrows as -1..-4 (up, down, left, right)
+// a key's name for its cap: short words; drawn symbols as negative: -1..-4 arrows (up, down, left, right), -5 Enter,
+// -6 Backspace (words too small to read where the game draws its icons small, the HUD's Menu / Map)
 static int key_name(int sc, char *out, size_t n) {
     switch (sc) {
     case SDL_SCANCODE_UP: return -1;
     case SDL_SCANCODE_DOWN: return -2;
     case SDL_SCANCODE_LEFT: return -3;
     case SDL_SCANCODE_RIGHT: return -4;
+    case SDL_SCANCODE_RETURN: case SDL_SCANCODE_KP_ENTER: return -5;
+    case SDL_SCANCODE_BACKSPACE: return -6;
     default: break;
     }
     static const struct { int sc; const char *s; } shorts[] = {
-        {SDL_SCANCODE_RETURN, "Enter"}, {SDL_SCANCODE_KP_ENTER, "Enter"}, {SDL_SCANCODE_BACKSPACE, "Bksp"},
         {SDL_SCANCODE_SPACE, "Space"}, {SDL_SCANCODE_ESCAPE, "Esc"}, {SDL_SCANCODE_TAB, "Tab"},
         {SDL_SCANCODE_LSHIFT, "Shift"}, {SDL_SCANCODE_RSHIFT, "Shift"}, {SDL_SCANCODE_LCTRL, "Ctrl"},
         {SDL_SCANCODE_RCTRL, "Ctrl"}, {SDL_SCANCODE_LALT, "Alt"}, {SDL_SCANCODE_RALT, "Alt"},
@@ -291,8 +293,18 @@ static void keycap(Canvas *c, float x0, float y0, float x1, float y1, int sc, bo
     rrect(c, fx0 + line, fy0 + line, fx1 - line, fy1 - line, m * 0.13f, FILL);  // ...around the face
     char name[16];
     int k = key_name(sc, name, sizeof name);
-    float cx = (fx0 + fx1) / 2, cy = (fy0 + fy1) / 2, fw = fx1 - fx0, fh = fy1 - fy0;
-    if (k < 0) arrow(c, cx, cy, fminf(fw, fh) * 0.27f, -k - 1, CUT);
+    float cx = (fx0 + fx1) / 2, cy = (fy0 + fy1) / 2, fw = fx1 - fx0, fh = fy1 - fy0, s = fminf(fw, fh);
+    float bar = fmaxf(2.0f, s * 0.11f);
+    if (k == -5) {  // Enter: a line down from the top right, then left into an arrow head
+        float rx = cx + s * 0.26f, top = cy - s * 0.28f, mid = cy + s * 0.12f, lx = cx - s * 0.12f;
+        rrect(c, rx - bar / 2, top, rx + bar / 2, mid + bar / 2, 0, CUT);
+        rrect(c, lx, mid - bar / 2, rx + bar / 2, mid + bar / 2, 0, CUT);
+        arrow(c, lx - s * 0.06f, mid, s * 0.17f, 2, CUT);
+    } else if (k == -6) {  // Backspace: a long arrow to the left
+        float lx = cx - s * 0.12f, rx = cx + s * 0.32f;
+        rrect(c, lx, cy - bar / 2, rx, cy + bar / 2, 0, CUT);
+        arrow(c, lx - s * 0.08f, cy, s * 0.2f, 2, CUT);
+    } else if (k < 0) arrow(c, cx, cy, s * 0.27f, -k - 1, CUT);
     else text(c, name, cx, cy, fw * 0.8f, fh * (small || strlen(name) > 1 ? 0.42f : 0.52f), CUT);
 }
 

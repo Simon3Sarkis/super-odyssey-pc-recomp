@@ -92,16 +92,18 @@ static void recompute_pad(void) {
 }
 
 // Mouse camera (Controls tab "Mouse camera", `mouse_camera` in powermoon.ini): while the game has the window and no
-// menu is up, the pointer is held in the window (SDL relative mode, input_mouse_window) and its movement becomes the
-// right stick: the speed of the movement, sampled every ~12 ms (the game polls several times a frame), is the tilt.
-// MOUSE_FULL counts a second tilt it all the way at 100% sensitivity; any movement tilts it at least MOUSE_MIN, past
-// the game's own stick deadzone, so a slow movement still turns the camera. A faster movement goes on past full tilt,
-// up to MOUSE_OVER times it (a stick can't: the camera turns faster than a controller can make it, where the game
-// takes such values; where it doesn't, they count as full tilt).
-// ODYSSEY_MOUSE_FULL / ODYSSEY_MOUSE_MIN (0..0.9) / ODYSSEY_MOUSE_OVER (1..8) override them (tuning).
+// menu is up, the pointer is held in the window (SDL relative mode, input_mouse_window) and its movement turns the
+// camera: the speed of the movement, sampled every ~12 ms (the game reads it several times a frame), is a stick's
+// tilt. MOUSE_FULL counts a second make a full tilt at 100% sensitivity; any movement tilts at least MOUSE_MIN, past
+// the camera's own threshold, so a slow movement still turns it.
+// The game's camera takes it straight (hle__ZNK18ProjectCameraInput14calcInputStick below), with no stick's limit:
+// a quick movement turns the camera as far as the mouse went, up to MOUSE_OVER times a full tilt. Elsewhere (no camera
+// asking: the map, menus) it is the right stick, up to full tilt.
+// ODYSSEY_MOUSE_FULL / ODYSSEY_MOUSE_MIN (0..0.9) / ODYSSEY_MOUSE_OVER (1..40) override them (tuning).
 #define MOUSE_FULL 400.0f
 #define MOUSE_MIN 0.25f
-#define MOUSE_OVER 3.0f
+#define MOUSE_OVER 20.0f
+static _Atomic uint64_t g_camera_asked_ns;  // the game's camera last read its stick (the mouse goes there, not the pad)
 static _Atomic int32_t mouse_acc_x, mouse_acc_y;  // movement since the last sample, in 1/16 counts
 static _Atomic bool mouse_held;                   // the pointer is held: its movement goes to the camera
 static void mouse_add(float dx, float dy) {
@@ -110,20 +112,21 @@ static void mouse_add(float dx, float dy) {
 }
 static void mouse_forget(void) { atomic_store(&mouse_acc_x, 0), atomic_store(&mouse_acc_y, 0); }
 
-// The mouse's share of the right stick now (y up)
-static void mouse_stick(int32_t *rx, int32_t *ry) {
+// The mouse as a stick now (y up): its tilt, up to MOUSE_OVER (several readers in a frame see the same sample)
+static void mouse_tilt(float *ox, float *oy) {
     static float full = 0, mn = -1, over = 0;
     if (mn < 0) {
         const char *f = getenv("ODYSSEY_MOUSE_FULL"), *m = getenv("ODYSSEY_MOUSE_MIN"), *o = getenv("ODYSSEY_MOUSE_OVER");
         full = f && atof(f) > 0 ? (float)atof(f) : MOUSE_FULL;
         mn = m ? fminf(fmaxf((float)atof(m), 0), 0.9f) : MOUSE_MIN;
-        over = o ? fminf(fmaxf((float)atof(o), 1), 8) : MOUSE_OVER;
+        over = o ? fminf(fmaxf((float)atof(o), 1), 40) : MOUSE_OVER;
     }
     static uint64_t last;
-    static float sx, sy;  // the last sample's tilt, -MOUSE_OVER..MOUSE_OVER
+    static float sx, sy;  // the last sample's tilt
     uint64_t now = plat_now_ns();
     double dt = last ? (now - last) / 1e9 : 0;
-    if (!last || dt > 0.25) { last = now; mouse_forget(); sx = sy = 0; return; }  // (first poll, or after a pause)
+    *ox = *oy = 0;
+    if (!last || dt > 0.25) { last = now; mouse_forget(); sx = sy = 0; return; }  // (first read, or after a pause)
     if (dt >= 0.012) {
         float dx = atomic_exchange(&mouse_acc_x, 0) / 16.0f, dy = atomic_exchange(&mouse_acc_y, 0) / 16.0f;
         last = now;
@@ -136,7 +139,38 @@ static void mouse_stick(int32_t *rx, int32_t *ry) {
         }
         sx = vx, sy = vy;
     }
-    *rx += (int32_t)lroundf(sx * 32767), *ry += (int32_t)lroundf(sy * 32767);
+    *ox = sx, *oy = sy;
+}
+
+// The mouse's share of the right stick (nn::hid units), when the game's camera isn't taking it itself
+static void mouse_stick(int32_t *rx, int32_t *ry) {
+    float x, y;
+    mouse_tilt(&x, &y);
+    if (plat_now_ns() - atomic_load(&g_camera_asked_ns) < 100000000ull) return;  // (the camera has it: below)
+    float r = sqrtf(x * x + y * y);
+    if (r > 1) x /= r, y /= r;  // (a stick's reach)
+    *rx += (int32_t)lroundf(x * 32767), *ry += (int32_t)lroundf(y * 32767);
+}
+
+// ProjectCameraInput::calcInputStick(this, sead::Vector2f *out) (Odyssey; runtime/hle/hle_symbols.txt): the game's
+// camera reads its stick here - the right stick as the player's camera functions make it
+// (PlayerCameraFunction::calcCameraMoveInput(out, this->actor), what the game's own body does), and the mouse on top,
+// with no stick's limit. (The poser's options - inverted axes - apply after it, as to the stick.)
+void hle__ZNK18ProjectCameraInput14calcInputStickEPN4sead7Vector2IfEE(Cpu *c) {
+    uint64_t self = c->x[0], out = c->x[1];
+    c->x[0] = out;
+    c->x[1] = *(uint64_t *)(uintptr_t)(self + 8);  // (its actor)
+    guest_call(c, guest_sym("_ZN20PlayerCameraFunction19calcCameraMoveInputEPN4sead7Vector2IfEEPKN2al9LiveActorE"));
+    atomic_store(&g_camera_asked_ns, plat_now_ns());
+    extern bool menu_input_captured(void);  // (runtime/ui/menu.mm: a menu has the controls)
+    if (!out || menu_input_captured()) return;
+    float x, y;
+    mouse_tilt(&x, &y);
+    float *v = (float *)(uintptr_t)out;
+    v[0] += x, v[1] += y;
+    static int lm = -1, n;
+    if (lm < 0) lm = getenv("ODYSSEY_LOG_MOUSE") != NULL;
+    if (lm && (x || y) && n++ % 20 == 0) LOG("[input] mouse camera: camera stick %.2f %.2f\n", v[0], v[1]);
 }
 
 // Main thread, every pass of the window's event loop: the pointer is held while the game has it (the window in front,
@@ -529,12 +563,7 @@ static void fill_state(Cpu *c) {
         if (lm < 0) lm = getenv("ODYSSEY_LOG_MOUSE") != NULL;
         if (lm && (mrx || mry) && n++ % 20 == 0) LOG("[input] mouse camera: right stick %d %d%s\n", mrx, mry, menu ? " (menu up: dropped)" : "");
     }
-    int32_t rx = clamp_axis((menu ? 0 : key_rx + pad_rx) + script_rx), ry = clamp_axis((menu ? 0 : key_ry + pad_ry) + script_ry);
-    if (!menu && (mrx || mry)) {  // (the mouse may go past full tilt: MOUSE_OVER)
-        const int32_t lim = (int32_t)(32767 * 8);
-        rx = rx + mrx > lim ? lim : rx + mrx < -lim ? -lim : rx + mrx;
-        ry = ry + mry > lim ? lim : ry + mry < -lim ? -lim : ry + mry;
-    }
+    int32_t rx = clamp_axis((menu ? 0 : key_rx + pad_rx + mrx) + script_rx), ry = clamp_axis((menu ? 0 : key_ry + pad_ry + mry) + script_ry);
     // stick directions also appear as buttons (bits 16-23)
     if (lx < -16000) b |= 1ull << 16;
     if (ly > 16000) b |= 1ull << 17;

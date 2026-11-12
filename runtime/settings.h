@@ -20,8 +20,9 @@ static inline int settings_display_height(int mode) {
 }
 // Anisotropic filtering of surface textures: ANISO_GAME keeps the level the game asks for, else 2x..16x
 enum { ANISO_GAME = 0 };
-// Frame rate: FPS_120 draws at 120 per second with gameplay at its 60 (runtime/hle/odyssey_120.c); FPS_60 as on the Switch
-enum { FPS_60 = 0, FPS_120 = 1 };
+// Frame rate: FPS_90 / FPS_120 draw 90 / 120 times a second with gameplay at its 60 (runtime/hle/odyssey_120.c); FPS_60
+// as on the Switch
+enum { FPS_60 = 0, FPS_90 = 1, FPS_120 = 2, FPS_COUNT };
 // The image in a window of another shape: 16:9 with bars, or (Vulkan) filling a wider window with more of the scene
 // at the sides (runtime/hle/odyssey_wide.c)
 enum { ASPECT_16_9 = 0, ASPECT_FILL = 1 };

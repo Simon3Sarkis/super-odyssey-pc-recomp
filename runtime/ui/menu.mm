@@ -692,12 +692,13 @@ static void tab_performance(void) {
 #ifndef __APPLE__  // (Vulkan: runtime/hle/odyssey_120.c, nvn/interp.c)
     opt_section("Frame rate");
     {
-        static const char *fps[] = {"60 FPS", "120 FPS (Experimental)"};
-        opt_choice("Frame rate", &g_settings.frame_rate, fps, 2, FPS_60,
-                   "Experimental 120 FPS draws up to 120 frames per second while gameplay runs at its original 60 Hz. "
-                   "Use a 120 Hz or faster display. 60 FPS matches the Switch. Changes at once.", false);
+        static const char *fps[FPS_COUNT] = {"60 FPS", "90 FPS (Experimental)", "120 FPS (Experimental)"};
+        opt_choice("Frame rate", &g_settings.frame_rate, fps, FPS_COUNT, FPS_60,
+                   "90 and 120 FPS draw up to 90 or 120 frames per second while gameplay runs at its original 60 Hz. "
+                   "Use a display that refreshes at least that fast (90 Hz: Steam Deck OLED). "
+                   "60 FPS matches the Switch and uses the least power. Changes at once.", false);
     }
-    if (g_settings.frame_rate == FPS_120) opt_disable_next();
+    if (g_settings.frame_rate != FPS_60) opt_disable_next();
 #ifdef _WIN32
     if (vk_dlss_enabled()) opt_disable_next();
 #endif

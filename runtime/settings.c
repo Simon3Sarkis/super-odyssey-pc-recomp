@@ -208,7 +208,7 @@ void settings_load(void) {
         }
         else if (!strcmp(key, "shader_preload")) g_settings.shader_preload = atoi(val) != 0;
         else if (!strcmp(key, "shader_wait")) g_settings.shader_wait = atoi(val) != 0;
-        else if (!strcmp(key, "frame_rate")) g_settings.frame_rate = atoi(val) == 60 ? FPS_60 : FPS_120;
+        else if (!strcmp(key, "frame_rate")) g_settings.frame_rate = atoi(val) == 60 ? FPS_60 : atoi(val) == 90 ? FPS_90 : FPS_120;
         else if (!strcmp(key, "skip_intro")) g_settings.skip_intro = atoi(val) != 0;
         else if (!strcmp(key, "warmup")) g_settings.warmup = named_option(val, warmups, WARMUP_COUNT);
         else if (!strcmp(key, "mute_unfocused")) g_settings.mute_unfocused = atoi(val) != 0;
@@ -257,7 +257,7 @@ void settings_save(void) {
     fprintf(f, "frame_interp = %d\n", g_settings.frame_interp);
     if (g_settings.aniso) fprintf(f, "aniso = %d\n", g_settings.aniso);
     else fprintf(f, "aniso = game\n");
-    fprintf(f, "frame_rate = %d\n", g_settings.frame_rate == FPS_60 ? 60 : 120);
+    fprintf(f, "frame_rate = %d\n", g_settings.frame_rate == FPS_60 ? 60 : g_settings.frame_rate == FPS_90 ? 90 : 120);
     fprintf(f, "shader_preload = %d\n", g_settings.shader_preload);
     fprintf(f, "shader_wait = %d\n", g_settings.shader_wait);
     fprintf(f, "skip_intro = %d\n", g_settings.skip_intro);

@@ -37,6 +37,11 @@ saver* button to apply them again after changing things. For the biggest savings
 Deck's Quick Access menu (Performance > TDP Limit, e.g. 8-10 W). Don't use the Deck's frame limit below 60: Odyssey's
 gameplay runs one step per frame, so a 30 or 40 FPS limit slows the game itself down.
 
+**90 FPS** (Performance > Frame rate, experimental) draws up to 90 frames a second with gameplay still at 60. It is
+for a 90 Hz screen: a Steam Deck OLED, or a faster external display (the LCD Deck's screen shows 60 at most). On an LCD
+Deck in Cap Kingdom with the battery saver settings it measured about 78 FPS walking and 55 in the busiest town view,
+with gameplay kept at full speed. It uses noticeably more power than 60 FPS.
+
 ## Where things are
 
 The install folder you chose (default `~/.local/share/super-odyssey-pc-recomp`, or `$XDG_DATA_HOME/...`):

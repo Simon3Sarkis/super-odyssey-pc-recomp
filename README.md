@@ -22,7 +22,7 @@ reimplemented on the PC, with Vulkan for graphics.
 - **Every shader compiled at install time**, so effects don't stutter the first time they appear
 - **No doubled install size**: your game file is read in place and written once as a single data image
 - **Up to 4x internal resolution**, NVIDIA **DLSS / DLAA**, AMD FSR 1, SMAA, ultrawide *Fill window*
-- **Native 120 FPS** (experimental) or frame interpolation, anisotropic filtering, smooth gradients
+- **Native 90 or 120 FPS** (experimental) or frame interpolation, anisotropic filtering, smooth gradients
 - Keyboard and controller rebinding, RomFS mods, an in-game settings menu, and **built-in updates** from this page
 
 Windows 10 / 11 (x64) only for now.
@@ -61,9 +61,9 @@ You can also download the new zip from [Releases](../../releases) and extract it
 
 This is a preview. Known problems and things not done yet:
 
-- **Version 1.4.1** is newer in this port than 1.0.0 and less tested: native 120 FPS and the frame interpolation's
+- **Version 1.4.1** is newer in this port than 1.0.0 and less tested: native 90/120 FPS and the frame interpolation's
   pose smoothing are tuned on 1.0.0, so 1.4.1 can show more jitter or small glitches with them on.
-- **Native 120 FPS** is experimental on both versions: some objects or effects can move unevenly or look doubled.
+- **Native 90 and 120 FPS** are experimental on both versions: some objects or effects can move unevenly or look doubled.
 - **A short stutter can still happen** the first time a rare effect is drawn whose pipeline state nobody has recorded
   yet. It's prepared then and kept for next time.
 - **Online features** of the game (anything that needs Nintendo's servers) don't work.
@@ -100,7 +100,7 @@ the right explains the selected setting.
 - **Display**: windowed, borderless or exclusive fullscreen, display resolution, aspect ratio (ultrawide *Fill window*)
 - **Graphics**: internal resolution, NVIDIA DLSS / DLAA (presets, sharpening), AMD FSR 1, SMAA, anisotropic
   filtering, smooth gradients
-- **Performance**: 120 FPS (native or interpolated), shader preloading and warm-up, FPS counter and performance
+- **Performance**: 90 or 120 FPS (native) or 120 interpolated, shader preloading and warm-up, FPS counter and performance
   overlay, compile shaders again at the next start
 - **Audio**: volume, reverb, movie audio, mute in background
 - **Controls**: language, vibration, stick deadzone, mouse camera (sensitivity, invert), button prompts (keyboard /

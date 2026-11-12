@@ -424,6 +424,16 @@ HLE_FUNC("_ZN2nn3hid22GetSixAxisSensorStatesEPNS0_18SixAxisSensorStateEiRKNS0_19
         f[9] = f[13] = f[17] = 1;
     }
     *(uint32_t *)(s + 0x58) = 1;
+    {   // ODYSSEY_LOG_MOTION=1: what the game reads, once a second (how many samples it asks for, the values)
+        static int log = -1;
+        static uint64_t logged;
+        if (log < 0) log = getenv("ODYSSEY_LOG_MOTION") != NULL;
+        if (log && now - logged > 1000000000ull) {
+            logged = now;
+            LOG("[input] game reads motion (asks %d, handle %#x, %s): accel %.2f %.2f %.2f gyro %.3f %.3f %.3f\n", (int)c->x[1],
+                *(uint32_t *)(uintptr_t)c->x[2], live ? "live" : "at rest", f[0], f[1], f[2], f[3], f[4], f[5]);
+        }
+    }
     pthread_mutex_unlock(&motion_lock);
     c->x[0] = 1;
 }

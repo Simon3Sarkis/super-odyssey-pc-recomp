@@ -37,6 +37,7 @@
   <!-- the star -->
   <polygon points="224,40 238,80 280,80 246,104 259,145 224,120 189,145 202,104 168,80 210,80" fill="#F5C542" stroke="#9A6010" stroke-width="6" stroke-linejoin="round"/>
   <!-- the name -->
-  <text x="360" y="190" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="78" font-weight="700" fill="#FFFFFF">Super Odyssey PC Recomp</text>
-  <text x="364" y="240" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="30" fill="#E8F0FF">A native PC port by static recompilation - bring your own game</text>
+  <!-- (fixed widths: the fonts differ between browsers and systems, and a wider one ran past the edge) -->
+  <text x="352" y="188" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="72" font-weight="700" fill="#FFFFFF" textLength="860" lengthAdjust="spacingAndGlyphs">Super Odyssey PC Recomp</text>
+  <text x="356" y="238" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="28" fill="#E8F0FF" textLength="820" lengthAdjust="spacingAndGlyphs">A native PC port by static recompilation - bring your own game</text>
 </svg>

@@ -191,6 +191,16 @@ const char *plat_symbol(uint64_t pc, uint64_t *offset) {
 
 // Fatal error without a terminal: say so in a message box rather than vanishing (the details are in the log).
 uint64_t plat_private_bytes(void) { return 0; }
+uint64_t plat_resident_bytes(void) {
+    FILE *f = fopen("/proc/self/statm", "r");
+    unsigned long long size = 0, rss = 0;
+    if (f) {
+        if (fscanf(f, "%llu %llu", &size, &rss) != 2) rss = 0;
+        fclose(f);
+    }
+    return rss * (uint64_t)sysconf(_SC_PAGESIZE);
+}
+uint64_t plat_total_ram(void) { return (uint64_t)sysconf(_SC_PHYS_PAGES) * (uint64_t)sysconf(_SC_PAGESIZE); }
 uint64_t plat_guest_bytes(void) { return 0; }
 uint64_t plat_heap_bytes(void) { return 0; }
 void plat_heap_histogram(void) {}

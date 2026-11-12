@@ -1050,6 +1050,14 @@ const char *renderer_stats(void) {
                      (unsigned long long)(plat_guest_bytes() >> 20), (unsigned long long)(plat_heap_bytes() >> 20),
                      atomic_load(&dbg_qlen[0]), atomic_load(&dbg_qlen[1]), atomic_load(&dbg_qlen[2]),
                      atomic_load(&dbg_qlen[3]), atomic_load(&dbg_progs), (unsigned long long)(nvn_record_bytes() >> 20));
+            for (uint32_t h = 0; h < mp->memoryHeapCount; h++) {  // (every heap: system memory ones too)
+                n = strlen(stats_text);
+                if (n >= sizeof stats_text - 64) break;
+                snprintf(stats_text + n, sizeof stats_text - n, " heap%u%s %.0f MB in %u blocks, %u allocs", h,
+                         mp->memoryHeaps[h].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT ? "(gpu)" : "(sys)",
+                         bud[h].statistics.blockBytes / 1048576.0, bud[h].statistics.blockCount,
+                         bud[h].statistics.allocationCount);
+            }
         }
         extern uint64_t renderer_present_count(void);
         if (hist_at >= 0 && renderer_present_count() >= (uint64_t)hist_at) {
@@ -1886,6 +1894,7 @@ static void prog_failed(Prog *p) {
     atomic_store(&p->state, 2);
 }
 
+static bool preload_room(void);
 static void compile_program(void *arg) {
     Prog *p = arg;
     int e = PSTEP_COMPILE;
@@ -1922,7 +1931,7 @@ static void compile_program(void *arg) {
     if (huge_ahead < 0) huge_ahead = getenv("ODYSSEY_HUGE_AHEAD") != NULL;
     // (menu, Video: Preload area shaders - the libraries of everything a stage sets up, right away: from the saved
     // binaries a few ms each on the low-priority workers, so nothing is left to load at a first draw)
-    bool preload = g_settings.shader_preload && !g_vk.headless;
+    bool preload = g_settings.shader_preload && !g_vk.headless && preload_room();
     if (g_vk.gpl && p->ahead && ((!atomic_load(&p->urgent) && !preload) || (p->huge && !p->drawn && !huge_ahead))) {
         atomic_store(&p->step, PSTEP_LIBS);
         return;
@@ -1934,6 +1943,32 @@ static void compile_program(void *arg) {
     if (p->huge && huge_ahead) huge_link_test(p);
     atomic_store(&p->step, PSTEP_DONE);
     atomic_store(&p->state, 1);
+}
+
+// Preload area shaders, within a memory budget: the driver keeps its libraries for good (NVIDIA: ~17 MB a program,
+// also once destroyed), and most programs a stage sets up are never drawn - with it on, a few stages took the process
+// to 48 GB in RAM (61 GB committed; 10 GB without it, 2026-11-12). It stops once the process holds a quarter of the
+// machine's RAM or 8 GB, whichever is less (ODYSSEY_PRELOAD_MEM_MB=<MB> sets it); from then on a program's libraries
+// are built at its first draw (from the driver's cache: 1-3 ms), as without the setting.
+static bool preload_room(void) {
+    static uint64_t budget, checked_ns;
+    static _Atomic bool full;
+    if (!budget) {
+        const char *e = getenv("ODYSSEY_PRELOAD_MEM_MB");
+        uint64_t ram = plat_total_ram(), b = ram / 4;
+        if (!b || b > (8ull << 30)) b = 8ull << 30;
+        budget = e ? strtoull(e, NULL, 10) << 20 : b;
+    }
+    uint64_t now = plat_now_ns();
+    if (now - checked_ns < 200000000ull) return !atomic_load(&full);  // (looked at 5 times a second)
+    checked_ns = now;
+    uint64_t used = plat_resident_bytes();
+    bool over = used && used > budget;
+    if (over && !atomic_exchange(&full, true))
+        LOG("[shader] preloading stopped: the game holds %llu MB in RAM (budget %llu MB); libraries build at first draws\n",
+            (unsigned long long)(used >> 20), (unsigned long long)(budget >> 20));
+    if (!over) atomic_store(&full, false);
+    return !over;
 }
 
 // The libraries of a program set up ahead, for its first draw (a job, or the draw itself while builds block)

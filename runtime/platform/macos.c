@@ -115,6 +115,8 @@ const char *plat_symbol(uint64_t pc, uint64_t *offset) {
 }
 
 uint64_t plat_private_bytes(void) { return 0; }
+uint64_t plat_resident_bytes(void) { return 0; }
+uint64_t plat_total_ram(void) { return 0; }
 uint64_t plat_guest_bytes(void) { return 0; }
 uint64_t plat_heap_bytes(void) { return 0; }
 void plat_heap_histogram(void) {}

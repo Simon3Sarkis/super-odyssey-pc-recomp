@@ -721,9 +721,10 @@ static void tab_performance(void) {
                "Shows FPS, frame time, and available hardware information in the top right.");
 #ifndef __APPLE__  // (Vulkan: nvn/vulkan/device.c vk_prepare_before_start)
     opt_section("Shaders");
-    opt_toggle("Preload area shaders", &g_settings.shader_preload, true,
-               "Warms shader libraries during area loading to reduce stalls and objects popping in. Uses more memory. "
-               "Applies to areas loaded from now on.");
+    opt_toggle("Preload area shaders", &g_settings.shader_preload, false,
+               "Builds the shaders of everything an area loads right away, to reduce stalls and objects popping in. "
+               "Uses a lot of memory (the graphics driver keeps them), so it stops at a quarter of your RAM or 8 GB. "
+               "Shaders the game has drawn before are built ahead either way. Applies to areas loaded from now on.");
     {
         static const char *wn[] = {"Skip", "Wait"};
         int wi = g_settings.shader_wait;

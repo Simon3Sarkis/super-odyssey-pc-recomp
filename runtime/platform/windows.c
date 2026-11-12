@@ -160,6 +160,16 @@ uint64_t plat_private_bytes(void) {
     return K32GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS *)&m, sizeof m) ? m.PrivateUsage : 0;
 }
 
+uint64_t plat_resident_bytes(void) {
+    PROCESS_MEMORY_COUNTERS m = {.cb = sizeof m};
+    return K32GetProcessMemoryInfo(GetCurrentProcess(), &m, sizeof m) ? m.WorkingSetSize : 0;
+}
+
+uint64_t plat_total_ram(void) {
+    MEMORYSTATUSEX m = {.dwLength = sizeof m};
+    return GlobalMemoryStatusEx(&m) ? m.ullTotalPhys : 0;
+}
+
 uint64_t plat_heap_bytes(void) {  // (committed in the process's heaps: malloc, and drivers' own heaps)
     HANDLE h[64];
     DWORD n = GetProcessHeaps(64, h);

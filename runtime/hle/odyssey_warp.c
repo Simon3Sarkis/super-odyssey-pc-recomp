@@ -15,7 +15,9 @@
 #include "../hle.h"
 #include "../rt.h"
 
-#define STAGE_SCENE_HOLDER 0x2d0      // StageScene::mGameDataHolder (OdysseyDecomp StageScene.h; control() loads it)
+// StageScene::mGameDataHolder (OdysseyDecomp StageScene.h; control() loads it): 0x2d0; 1.4.1: 0x2e0 (its control()
+// reads it there as 1.0.0 does at 0x2d0)
+#define STAGE_SCENE_HOLDER (loader_main_is_v141() ? 0x2e0 : 0x2d0)
 #define CHANGE_STAGE_INFO_SIZE 0x278  // (static_assert in OdysseyDecomp ChangeStageInfo.h)
 
 uint64_t renderer_present_count(void);
@@ -26,7 +28,7 @@ typedef struct {
     int scenario;
     uint64_t at;
 } Warp;
-static Warp g_warps[8];  // (a sequence: "world:ForestWorldHomeStage@1500;ForestWorldBossStage@5500")
+static Warp g_warps[64];  // (a sequence: "world:ForestWorldHomeStage@1500;ForestWorldBossStage@5500")
 static int g_nwarps, g_next;
 static GuestFn g_control;
 static bool g_log;
@@ -34,6 +36,13 @@ static bool g_log;
 static void warp_now(Cpu *c, uint64_t scene) {
     uint64_t holder = *(uint64_t *)(uintptr_t)(scene + STAGE_SCENE_HOLDER);
     if (!holder) return;
+    // (1.4.1 doesn't name ChangeStageInfo's constructor nor the world warp: no warps there, rather than a fatal error)
+    if (!loader_find_symbol(g_warps[g_next].world ? "_ZN16GameDataFunction35tryChangeNextStageWithDemoWorldWarpE20GameDataHolderWriterPKc"
+                                                  : "_ZN15ChangeStageInfoC1EPK14GameDataHolderPKcS4_biNS_15SubScenarioTypeE")) {
+        LOG("[warp] this version of the game doesn't name the functions a warp needs (1.0.0 does): warps off\n");
+        g_nwarps = g_next;
+        return;
+    }
     const Warp g_warp = g_warps[g_next++];
     uint64_t x[9], lr = c->x[30], sp = c->sp;
     memcpy(x, c->x, sizeof x);
@@ -192,6 +201,12 @@ static void stage_scene_control(Cpu *c) {
         memcpy(c->x, x, sizeof x);
         c->x[30] = lr, c->sp = sp;
     }
+    {   // ODYSSEY_LOG_STAGES=2: a line every 600 frames the scene runs (is it running?)
+        static int every = -1;
+        if (every < 0) every = getenv("ODYSSEY_LOG_STAGES") && atoi(getenv("ODYSSEY_LOG_STAGES")) == 2;
+        if (every && !(now % 600)) LOG("[warp] scene %llx at frame %llu, warp %d of %d next at %llu\n", (unsigned long long)c->x[0],
+                                       (unsigned long long)now, g_next, g_nwarps, g_next < g_nwarps ? (unsigned long long)g_warps[g_next].at : 0ull);
+    }
     if (g_next < g_nwarps && renderer_present_count() >= g_warps[g_next].at) warp_now(c, c->x[0]);
     g_control(c);
 }
@@ -201,7 +216,7 @@ void odyssey_boot(void) {
     g_log = (e && *e) || getenv("ODYSSEY_LOG_STAGES");
     g_complete_at = getenv("ODYSSEY_SAVE_COMPLETE") ? strtoull(getenv("ODYSSEY_SAVE_COMPLETE"), NULL, 10) + 1 : 0;
     g_nwarps = g_next = 0;
-    for (const char *p = e; p && *p && g_nwarps < 8;) {  // (';' between the warps of a sequence)
+    for (const char *p = e; p && *p && g_nwarps < (int)(sizeof g_warps / sizeof *g_warps);) {  // (';' between the warps of a sequence)
         const char *end = strchr(p, ';');
         char spec[300];
         snprintf(spec, sizeof spec, "%.*s", end ? (int)(end - p) : (int)strlen(p), p);

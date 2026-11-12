@@ -594,7 +594,11 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
     uint64_t frame = vk_frame_counter();
     // the button icon sheet whose icons should change (keyboard / controller, a rebind): uploaded again, its bytes
     // unchanged (nvn/kbprompts.c)
-    bool repatch = b->kbp > 0 && b->kbp_gen != kbprompts_generation();
+    // Nothing of it before the keyboard / mouse is used (kbprompts_active): a controller player's textures go as ever.
+    bool kb = kbprompts_active();
+    bool look = kb && !b->kbp && b->uploaded && t->layout.fmt && t->layout.layers <= 1 &&
+                kbprompts_candidate(t->width, t->height, t->layout.fmt->bw, t->layout.fmt->bh, t->layout.fmt->bpb);
+    bool repatch = look || (b->kbp > 0 && b->kbp_gen != kbprompts_generation());
     if (b->uploaded && b->checked_frame == frame && !repatch) return;
     if (b->uploaded && !b->dynamic && ((frame + ((uintptr_t)b >> 6)) & 7) && !repatch) return;
     const FormatInfo *fi = t->layout.fmt;
@@ -639,8 +643,8 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
     b->sample_hash = fnv_sample(mem, total);
     if (b->uploaded && h == b->data_hash && !repatch) return;
     if (b->uploaded && h != b->data_hash) b->dynamic = true;
-    if (!b->uploaded || h != b->data_hash)  // (new contents: the button icon sheet? looked at once deswizzled, below)
-        b->kbp = t->layout.layers <= 1 && kbprompts_candidate(t->width, t->height, fi->bw, fi->bh, fi->bpb) ? 2 : -1;
+    if (!b->uploaded || h != b->data_hash || look)  // (new contents: the button icon sheet? looked at deswizzled, below)
+        b->kbp = !kb ? 0 : t->layout.layers <= 1 && kbprompts_candidate(t->width, t->height, fi->bw, fi->bh, fi->bpb) ? 2 : -1;
     if (b->kbp > 0) b->kbp_gen = kbprompts_generation();
     b->data_hash = h;
     b->uploaded = true;

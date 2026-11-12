@@ -9,6 +9,9 @@
 extern "C" {
 #endif
 
+// The keyboard icons have been wanted at all this run (the keyboard / mouse used, or the setting): until then nothing
+// here runs - no texture is looked at or uploaded again - so a controller player's game is as it was without them
+bool kbprompts_active(void);
 // A texture of w x h texels in 4x4 blocks of bpb bytes could be the button icon sheet (its shape)
 bool kbprompts_candidate(uint32_t w, uint32_t h, uint32_t bw, uint32_t bh, uint32_t bpb);
 // Such a texture's level 0, deswizzled to rows of blocks (wb x hb), is the sheet (compared with the game's font file)

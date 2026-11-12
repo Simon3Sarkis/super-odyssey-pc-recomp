@@ -134,7 +134,15 @@ bool kbprompts_identify(const uint8_t *blocks, uint32_t wb, uint32_t hb) {
 
 // ---------------------------------------------------------------- which icons
 static _Atomic int g_last_kb = -1;  // the device used last: 1 keyboard / mouse, 0 controller, -1 none yet
-void kbprompts_note_device(bool keyboard) { g_last_kb = keyboard; }
+static _Atomic bool g_ever_kb;      // the keyboard icons were wanted once (from then on the sheet is looked after)
+void kbprompts_note_device(bool keyboard) {
+    g_last_kb = keyboard;
+    if (keyboard && !g_ever_kb) { g_ever_kb = true; LOG("[prompts] keyboard / mouse in use: keyboard icons on\n"); }
+}
+
+bool kbprompts_active(void) {
+    return g_settings.prompts == PROMPTS_KEYBOARD || (g_settings.prompts == PROMPTS_AUTO && g_ever_kb);
+}
 
 static bool keyboard_wanted(void) {
     if (g_settings.prompts == PROMPTS_CONTROLLER) return false;

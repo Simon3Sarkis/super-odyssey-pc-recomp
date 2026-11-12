@@ -57,6 +57,9 @@ void settings_battery_saver(void) {
     g_settings.aniso = 4;
     g_settings.dlss_mode = DLSS_OFF;
     g_settings.warmup = WARMUP_NORMAL;
+    // (no preloading: every program a stage sets up built in the background competed with the game thread on a Deck's
+    // 4 cores - 26 fps with it, 40 without, in Cap Kingdom)
+    g_settings.shader_preload = false;
 }
 static const char *const warmups[WARMUP_COUNT] = {"auto", "normal", "long"};
 

@@ -138,12 +138,76 @@ static void queue_lock_init(void) {
     pthread_mutexattr_settype(&a, PTHREAD_MUTEX_RECURSIVE);
     pthread_mutex_init(&g_queue_lock, &a);
 }
+// Asynchronous submission: the render thread hands each finished submission to a submitter thread, which makes the
+// vkQueueSubmit2 call. On a Steam Deck the amdgpu kernel driver takes ~4.3 ms in every submission that references the
+// imported guest heap (it re-checks the 3.1 GB of user memory page by page), 45% of the render thread's time; on its
+// own thread that wait overlaps the recording of the next submission. Order is kept (one queue, one thread), the
+// timeline values are assigned when handed over (waiting for a value whose signal isn't submitted yet is allowed for
+// timeline semaphores), and anything else using the queue (vk_queue_lock: presents, ImGui, a swapchain re-creation)
+// first waits until everything handed over has been submitted. Linux by default (ODYSSEY_VK_ASYNC_SUBMIT=0/1).
+typedef struct {
+    VkCommandBufferSubmitInfo cbs[2];
+    VkSemaphoreSubmitInfo sig[2], wt;
+    uint32_t ncb, nsig, nwt;
+} SubJob;
+#define SQ 4
+static SubJob sq[SQ];
+static unsigned sq_head, sq_tail;  // (head: submitted; tail: handed over)
+static pthread_mutex_t sq_mx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t sq_cv = PTHREAD_COND_INITIALIZER, sq_done_cv = PTHREAD_COND_INITIALIZER;
+static int sq_on = -1;
+static __thread bool t_submitter;
+static __thread int t_queue_depth;
+static void queue_submit_now(const SubJob *j);
+
+static void *submitter(void *a) {
+    (void)a;
+    t_submitter = true;
+    for (;;) {
+        pthread_mutex_lock(&sq_mx);
+        while (sq_head == sq_tail) pthread_cond_wait(&sq_cv, &sq_mx);
+        SubJob j = sq[sq_head % SQ];
+        pthread_mutex_unlock(&sq_mx);
+        queue_submit_now(&j);
+        pthread_mutex_lock(&sq_mx);
+        sq_head++;
+        pthread_cond_broadcast(&sq_done_cv);
+        pthread_mutex_unlock(&sq_mx);
+    }
+    return NULL;
+}
+static bool async_submit(void) {
+    if (sq_on < 0) {
+        const char *e = getenv("ODYSSEY_VK_ASYNC_SUBMIT");
+#ifdef __linux__
+        sq_on = !e || atoi(e) != 0;
+#else
+        sq_on = e && atoi(e) != 0;
+#endif
+        if (sq_on) {
+            pthread_t t;
+            if (pthread_create(&t, NULL, submitter, NULL)) sq_on = 0;
+            else pthread_detach(t);
+            LOG("[vk] submissions on their own thread: %s\n", sq_on ? "yes" : "no");
+        }
+    }
+    return sq_on;
+}
+static void sq_drain(void) {  // everything handed over submitted
+    if (sq_on <= 0 || t_submitter) return;
+    pthread_mutex_lock(&sq_mx);
+    while (sq_head != sq_tail) pthread_cond_wait(&sq_done_cv, &sq_mx);
+    pthread_mutex_unlock(&sq_mx);
+}
+
 void vk_queue_lock(void) {
     static pthread_once_t once = PTHREAD_ONCE_INIT;
     pthread_once(&once, queue_lock_init);
+    if (!t_queue_depth) sq_drain();  // (not while this thread holds the lock: the submitter would wait for it)
     pthread_mutex_lock(&g_queue_lock);
+    t_queue_depth++;
 }
-void vk_queue_unlock(void) { pthread_mutex_unlock(&g_queue_lock); }
+void vk_queue_unlock(void) { t_queue_depth--; pthread_mutex_unlock(&g_queue_lock); }
 
 // ODYSSEY_LOG_LOCKS=1 (research: what holds up a present): each hold over 0.3 ms, with the holder's role
 __thread const char *g_lock_role;  // (the interpolation thread and the presenter name themselves; else "game")
@@ -452,6 +516,17 @@ void vk_gpuprof_report(void) {
 }
 
 // Submit the pending work (if any). wait/signal: binary semaphores for presentation (may be null).
+static void queue_submit_now(const SubJob *j) {
+    VkSubmitInfo2 si = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2, .commandBufferInfoCount = j->ncb, .pCommandBufferInfos = j->cbs,
+                        .signalSemaphoreInfoCount = j->nsig, .pSignalSemaphoreInfos = j->sig,
+                        .waitSemaphoreInfoCount = j->nwt, .pWaitSemaphoreInfos = &j->wt};
+    vk_queue_lock();
+    VkResult sr = vkQueueSubmit2(g_vk.queue, 1, &si, VK_NULL_HANDLE);
+    vk_queue_unlock();
+    if (sr == VK_ERROR_DEVICE_LOST) vk_devlost_dump();
+    VK_CHECK(sr);
+}
+
 void vk_submit_extra(VkSemaphore wait, VkSemaphore signal, VkCommandBuffer extra) {
     (void)extra;
     vk_end_pass();
@@ -469,23 +544,27 @@ void vk_submit_extra(VkSemaphore wait, VkSemaphore signal, VkCommandBuffer extra
     if (s->ts) vkCmdWriteTimestamp2(s->main, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, prof_qp, (uint32_t)cur_sub * 2 + 1);
     VK_CHECK(vkEndCommandBuffer(s->main));
     cbs[n++] = (VkCommandBufferSubmitInfo){.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, .commandBuffer = s->main};
-    VkSemaphoreSubmitInfo sig[2] = {{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = g_vk.timeline,
-                                     .value = submit_seq + 1, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT},
-                                    {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = signal,
-                                     .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT}};
-    VkSemaphoreSubmitInfo wt = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = wait,
-                                .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT};
-    VkSubmitInfo2 si = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2, .commandBufferInfoCount = (uint32_t)n, .pCommandBufferInfos = cbs,
-                        .signalSemaphoreInfoCount = signal ? 2 : 1, .pSignalSemaphoreInfos = sig,
-                        .waitSemaphoreInfoCount = wait ? 1 : 0, .pWaitSemaphoreInfos = &wt};
+    SubJob j = {.ncb = (uint32_t)n, .nsig = signal ? 2 : 1, .nwt = wait ? 1 : 0};
+    for (int i = 0; i < n; i++) j.cbs[i] = cbs[i];
+    j.sig[0] = (VkSemaphoreSubmitInfo){.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = g_vk.timeline,
+                                       .value = submit_seq + 1, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
+    j.sig[1] = (VkSemaphoreSubmitInfo){.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = signal,
+                                       .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
+    j.wt = (VkSemaphoreSubmitInfo){.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = wait,
+                                   .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT};
     {
         PROF_T0();
         dl_note("submit %llu", (unsigned long long)submit_seq + 1);
-        vk_queue_lock();
-        VkResult sr = vkQueueSubmit2(g_vk.queue, 1, &si, VK_NULL_HANDLE);
-        vk_queue_unlock();
-        if (sr == VK_ERROR_DEVICE_LOST) vk_devlost_dump();
-        VK_CHECK(sr);
+        if (async_submit()) {
+            pthread_mutex_lock(&sq_mx);
+            while (sq_tail - sq_head >= SQ) pthread_cond_wait(&sq_done_cv, &sq_mx);
+            sq[sq_tail % SQ] = j;
+            sq_tail++;
+            pthread_cond_signal(&sq_cv);
+            pthread_mutex_unlock(&sq_mx);
+        } else {
+            queue_submit_now(&j);
+        }
         PROF_ADD(prof_submit);
     }
     pthread_mutex_lock(&seq_lock);
@@ -794,10 +873,17 @@ static void *translator(void *a) {
     for (;;) {
         pthread_mutex_lock(&tjobs_lock);
         Job *j;
-        while (!(j = jobq_pop(&tjobs_q[0])) && !(j = jobq_pop(&tjobs_q[1]))) pthread_cond_wait(&tjobs_cond, &tjobs_lock);
+        bool low = false;
+        while (!(j = jobq_pop(&tjobs_q[0])) && !(low = (j = jobq_pop(&tjobs_q[1])) != NULL))
+            pthread_cond_wait(&tjobs_cond, &tjobs_lock);
         pthread_mutex_unlock(&tjobs_lock);
+        // Programs set up ahead translate at low priority, as the workers build them (a Steam Deck's 4 cores: two
+        // translators at normal priority for minutes after a stage load, every program it set up, took the game
+        // thread from 24 to 38 ms a frame). Urgent ones - a draw waits - stay at normal priority.
+        if (low) SDL_SetCurrentThreadPriority(SDL_THREAD_PRIORITY_LOW);
         j->fn(j->arg);
         free(j);
+        if (low) SDL_SetCurrentThreadPriority(SDL_THREAD_PRIORITY_NORMAL);
     }
     return NULL;
 }

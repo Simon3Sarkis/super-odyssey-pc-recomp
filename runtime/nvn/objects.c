@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "../kernel.h"
+#include "../sampler.h"
 #include "interp.h"
 #include "rqueue.h"
 #include "nvn.h"
@@ -1028,6 +1029,10 @@ NVN(nvnQueuePresentTexture) {
     if (gt_log && gt_out && plat_now_ns() - gt_out < 100000000ull) {
         gt_sum += plat_now_ns() - gt_out;
         if (++gt_n == 600) { LOG("[game-time] %.2f ms a frame outside its present\n", gt_sum / 600.0 / 1e6); gt_sum = gt_n = 0; }
+    }
+    {   // ODYSSEY_SAMPLE_AT=<frame>: the game thread sampled from there (runtime/sampler.c, Linux)
+        extern uint64_t renderer_present_count(void);
+        sampler_frame(renderer_present_count());
     }
     bool rq = rq_enabled();
     if (rq) rq_present_throttle();  // (the render thread one frame behind at most)

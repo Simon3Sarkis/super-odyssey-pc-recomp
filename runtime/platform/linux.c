@@ -21,6 +21,7 @@
 #include "../mods.h"
 #include "../paths.h"
 #include "../platform.h"
+#include "../rt.h"
 
 #ifndef MAP_FIXED_NOREPLACE
 #define MAP_FIXED_NOREPLACE 0x100000
@@ -29,18 +30,33 @@
 // ---- guest address space
 // Everything readable/writable from the start, like macOS: the guest maps at 4K granularity, and untouched pages
 // cost nothing (MAP_NORESERVE: the 12 GB window doesn't count against overcommit).
+// The guest heap in huge pages (2 MB, transparent huge pages): the renderer imports the heap as one GPU buffer
+// (nvn/vulkan/exec.c gmem_import), and the amdgpu kernel driver walks such an imported range page by page on every
+// submission - 3.1 GB in 4 KB pages took 4.3 ms per submission on a Steam Deck, 45% of the render thread. madvise lets
+// the kernel assemble huge pages there (by default it only does where asked). ODYSSEY_THP=0: as before.
+static void heap_huge_pages(uint64_t lo, uint64_t hi) {
+    const char *e = getenv("ODYSSEY_THP");
+    if (e && !atoi(e)) return;
+    uint64_t a = HEAP_BASE > lo ? HEAP_BASE : lo, b = HEAP_BASE + HEAP_MAX < hi ? HEAP_BASE + HEAP_MAX : hi;
+    if (a < b && madvise((void *)(uintptr_t)a, b - a, MADV_HUGEPAGE) != 0)
+        fprintf(stderr, "[mem] huge pages for the guest heap not available (%s)\n", strerror(errno));
+}
+
 bool plat_reserve_guest(uint64_t lo, uint64_t hi) {
     void *p = mmap((void *)(uintptr_t)lo, hi - lo, PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE, -1, 0);
     if (p == MAP_FAILED) return false;
     if (p != (void *)(uintptr_t)lo) { munmap(p, hi - lo); return false; }  // (kernels before 4.17: just a hint)
+    heap_huge_pages(lo, hi);
     return true;
 }
 
 // Fresh zero pages over the whole window (the old ones are released at once).
 bool plat_reset_guest(uint64_t lo, uint64_t hi) {
-    return mmap((void *)(uintptr_t)lo, hi - lo, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED,
-                -1, 0) == (void *)(uintptr_t)lo;
+    bool ok = mmap((void *)(uintptr_t)lo, hi - lo, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED,
+                   -1, 0) == (void *)(uintptr_t)lo;
+    if (ok) heap_huge_pages(lo, hi);
+    return ok;
 }
 
 void plat_commit(uint64_t addr, uint64_t size) { (void)addr; (void)size; }

@@ -1803,6 +1803,8 @@ int ui_run(void) {
             input_handle_event(&e);
         }
         menu_apply_window_requests(window);
+        extern void input_mouse_window(SDL_Window *w);
+        input_mouse_window(window);  // (the mouse camera: the pointer held while the game has it)
         {   // ODYSSEY_RESIZE_TEST=<frame>:<w>x<h>[,<frame>:<w>x<h>...] (tests): the window changes size at those frames
             static const char *next;
             static bool init;

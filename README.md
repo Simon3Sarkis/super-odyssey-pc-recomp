@@ -103,7 +103,8 @@ the right explains the selected setting.
 - **Performance**: 120 FPS (native or interpolated), shader preloading and warm-up, FPS counter and performance
   overlay, compile shaders again at the next start
 - **Audio**: volume, reverb, movie audio, mute in background
-- **Controls**: language, vibration, stick deadzone, skip controller tips, key and button rebinding
+- **Controls**: language, vibration, stick deadzone, mouse camera (sensitivity, invert), skip controller tips, key and
+  button rebinding
 - **Mods**: switch RomFS mods on and off
 - **Updates**: this version, check / install updates, the project page
 
@@ -112,7 +113,7 @@ the right explains the selected setting.
 | Switch | Keyboard | Controller |
 |---|---|---|
 | Left stick | W A S D | left stick |
-| Right stick (camera) | Num 8 / 4 / 5 / 6 | right stick |
+| Right stick (camera) | mouse, or Num 8 / 4 / 5 / 6 | right stick |
 | A / B / X / Y | K / J / L / I | by position (east = A, south = B) |
 | L / R, ZL / ZR | Q / E, 1 / 3 | shoulder buttons / triggers |
 | + / - | Enter / Backspace | Start / Back |
@@ -120,6 +121,9 @@ the right explains the selected setting.
 | D-pad | arrow keys | d-pad |
 
 Fullscreen: F11 or Alt+Enter. Everything can be rebound in the menu.
+
+The mouse turns the camera while you play: the pointer stays in the window until you open the menu (Esc) or switch to
+another window. Sensitivity, invert up / down, or switching it off: menu > Controls > Mouse.
 
 ## Files
 

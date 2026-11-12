@@ -32,6 +32,8 @@ Settings g_settings = {
     .dlss_sharpness = 20,
     .deband = true,
     .rumble = true,
+    .mouse_camera = true,
+    .mouse_sensitivity = 100,
     .aniso = 16,
     .frame_rate = FPS_60,
     .shader_preload = true,
@@ -194,6 +196,10 @@ void settings_load(void) {
         else if (!strcmp(key, "warmup")) g_settings.warmup = named_option(val, warmups, WARMUP_COUNT);
         else if (!strcmp(key, "mute_unfocused")) g_settings.mute_unfocused = atoi(val) != 0;
         else if (!strcmp(key, "check_updates")) g_settings.check_updates = atoi(val) != 0;
+        else if (!strcmp(key, "mouse_camera")) g_settings.mouse_camera = atoi(val) != 0;
+        else if (!strcmp(key, "mouse_sensitivity"))
+            g_settings.mouse_sensitivity = atoi(val) < 25 ? 25 : atoi(val) > 400 ? 400 : atoi(val);
+        else if (!strcmp(key, "mouse_invert_y")) g_settings.mouse_invert_y = atoi(val) != 0;
         else if (!strcmp(key, "language")) {  // ("auto" or one of the game's codes; anything else: auto)
             g_settings.language = LANG_AUTO;
             for (int i = 1; i < N_LANGUAGES; i++)
@@ -239,6 +245,9 @@ void settings_save(void) {
     fprintf(f, "warmup = %s\n", warmups[g_settings.warmup >= 0 && g_settings.warmup < WARMUP_COUNT ? g_settings.warmup : 0]);
     fprintf(f, "mute_unfocused = %d\n", g_settings.mute_unfocused);
     fprintf(f, "check_updates = %d\n", g_settings.check_updates);
+    fprintf(f, "mouse_camera = %d\n", g_settings.mouse_camera);
+    fprintf(f, "mouse_sensitivity = %d\n", g_settings.mouse_sensitivity);
+    fprintf(f, "mouse_invert_y = %d\n", g_settings.mouse_invert_y);
     if (g_settings.res_mode == RES_DYNAMIC) fprintf(f, "resolution = dynamic\n");
     else if (g_settings.res_mode == RES_Q75) fprintf(f, "resolution = 75%%\n");
     else if (g_settings.res_mode == RES_Q25) fprintf(f, "resolution = 25%%\n");

@@ -913,6 +913,20 @@ static void tab_about(void) {
         if (choice("Stick deadzone", &i, names, 7)) g_settings.stick_deadzone = pct[i];
     }
     hint("How far a controller stick moves before it counts. Raise it if Mario or the camera drifts on their own.");
+    ImGui::Spacing();
+    header("Mouse");
+    toggle("Mouse camera", &g_settings.mouse_camera);
+    hint("Moving the mouse turns the camera. While you play, the pointer stays in the window; it is free again in this "
+         "menu (Esc) or when you switch to another window.");
+    {
+        static const int pct[] = {25, 50, 75, 100, 150, 200, 300, 400};
+        static const char *const names[] = {"25%", "50%", "75%", "100%", "150%", "200%", "300%", "400%"};
+        int i = 0;
+        for (int k = 0; k < 8; k++) if (pct[k] <= g_settings.mouse_sensitivity) i = k;
+        if (choice("Mouse sensitivity", &i, names, 8)) g_settings.mouse_sensitivity = pct[i];
+    }
+    toggle("Invert mouse up / down", &g_settings.mouse_invert_y);
+    hint("Moving the mouse up turns the camera down instead.");
     toggle("Skip controller tips", &g_settings.skip_intro);
     hint("Leaves out the Joy-Con instructions screen's wait before the title screen. Applies at the next start.");
     ImGui::Spacing();

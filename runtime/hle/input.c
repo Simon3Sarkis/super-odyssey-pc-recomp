@@ -90,11 +90,73 @@ static void recompute_pad(void) {
     pad_rx = x, pad_ry = y;
 }
 
+// Mouse camera (Controls tab "Mouse camera", `mouse_camera` in powermoon.ini): while the game has the window and no
+// menu is up, the pointer is held in the window (SDL relative mode, input_mouse_window) and its movement becomes the
+// right stick: the speed of the movement, sampled every ~12 ms (the game polls several times a frame), is the tilt.
+// MOUSE_FULL counts a second tilt it all the way at 100% sensitivity; any movement tilts it at least MOUSE_MIN, past
+// the game's own stick deadzone, so a slow movement still turns the camera.
+// ODYSSEY_MOUSE_FULL / ODYSSEY_MOUSE_MIN (0..0.9) override them (tuning).
+#define MOUSE_FULL 1500.0f
+#define MOUSE_MIN 0.2f
+static _Atomic int32_t mouse_acc_x, mouse_acc_y;  // movement since the last sample, in 1/16 counts
+static _Atomic bool mouse_held;                   // the pointer is held: its movement goes to the camera
+static void mouse_add(float dx, float dy) {
+    atomic_fetch_add(&mouse_acc_x, (int32_t)lroundf(dx * 16));
+    atomic_fetch_add(&mouse_acc_y, (int32_t)lroundf(dy * 16));
+}
+static void mouse_forget(void) { atomic_store(&mouse_acc_x, 0), atomic_store(&mouse_acc_y, 0); }
+
+// The mouse's share of the right stick now (y up)
+static void mouse_stick(int32_t *rx, int32_t *ry) {
+    static float full = 0, mn = -1;
+    if (mn < 0) {
+        const char *f = getenv("ODYSSEY_MOUSE_FULL"), *m = getenv("ODYSSEY_MOUSE_MIN");
+        full = f && atof(f) > 0 ? (float)atof(f) : MOUSE_FULL;
+        mn = m ? fminf(fmaxf((float)atof(m), 0), 0.9f) : MOUSE_MIN;
+    }
+    static uint64_t last;
+    static float sx, sy;  // the last sample's tilt, -1..1
+    uint64_t now = plat_now_ns();
+    double dt = last ? (now - last) / 1e9 : 0;
+    if (!last || dt > 0.25) { last = now; mouse_forget(); sx = sy = 0; return; }  // (first poll, or after a pause)
+    if (dt >= 0.012) {
+        float dx = atomic_exchange(&mouse_acc_x, 0) / 16.0f, dy = atomic_exchange(&mouse_acc_y, 0) / 16.0f;
+        last = now;
+        float k = g_settings.mouse_sensitivity / 100.0f / full / (float)dt;  // counts -> tilt
+        float vx = dx * k, vy = -dy * k * (g_settings.mouse_invert_y ? -1 : 1);  // (screen y is down)
+        float r = sqrtf(vx * vx + vy * vy);
+        if (r > 0) {  // the direction kept, the size from MOUSE_MIN up
+            float t = mn + (1 - mn) * fminf(r, 1);
+            vx *= t / r, vy *= t / r;
+        }
+        sx = vx, sy = vy;
+    }
+    *rx += (int32_t)lroundf(sx * 32767), *ry += (int32_t)lroundf(sy * 32767);
+}
+
+// Main thread, every pass of the window's event loop: the pointer is held while the game has it (the window in front,
+// no menu / name entry / installer up, the setting on); otherwise it is free and shown as usual.
+extern bool menu_input_captured(void);  // runtime/ui/menu.mm: overlay menu or name entry up (it has the keys / pad)
+void input_mouse_window(SDL_Window *w) {
+    bool want = w && g_settings.mouse_camera && !host_test && !menu_input_captured() && SDL_GetKeyboardFocus() == w;
+    if (want == SDL_GetWindowRelativeMouseMode(w)) { mouse_held = want; return; }
+    if (!SDL_SetWindowRelativeMouseMode(w, want)) {
+        static int nlog;
+        if (nlog++ < 3) LOG("[input] mouse camera: relative mode %s failed: %s\n", want ? "on" : "off", SDL_GetError());
+        return;
+    }
+    mouse_held = want;
+    mouse_forget();
+    static int nlog;
+    if (nlog++ < 8) LOG("[input] mouse camera: pointer %s\n", want ? "held (moves the camera)" : "free");
+}
+
 // Forget held keys (the menu took focus); the gamepad is re-read on its next event.
 void input_reset(void) {
     memset(keys_down, 0, sizeof keys_down);
     recompute_keyboard();
     atomic_store(&pending_presses, 0);
+    mouse_forget();
 }
 
 volatile int g_debug_frame_request;  // F9: dump the next frame's passes (build/pass_*.png) + draw log
@@ -192,6 +254,9 @@ void input_handle_event(const SDL_Event *e) {
     case SDL_EVENT_GAMEPAD_AXIS_MOTION: case SDL_EVENT_GAMEPAD_BUTTON_UP:
         recompute_pad();
         break;
+    case SDL_EVENT_MOUSE_MOTION:
+        if (mouse_held) mouse_add(e->motion.xrel, e->motion.yrel);
+        break;
     case SDL_EVENT_WINDOW_FOCUS_LOST:
         input_reset();
         break;
@@ -207,7 +272,8 @@ static _Atomic int32_t script_lx, script_ly, script_rx, script_ry;
 // Tests of the bindings, through them like a real player:
 // ODYSSEY_HOST_INPUT="frame:key:<SDL key name>:frames,frame:pad:<button>:frames,..." holds a host key / controller
 //   button (names as in powermoon.ini's bind_* lines: "Z", "Keypad 0", "south", "ltrigger"...);
-//   "frame:lstick:<x>/<y>:frames" holds the controller's left stick there (raw SDL units, y up: a drifting stick).
+//   "frame:lstick:<x>/<y>:frames" holds the controller's left stick there (raw SDL units, y up: a drifting stick);
+//   "frame:mouse:<dx>/<dy>:frames" moves the mouse by that many counts each frame (screen y down: the mouse camera).
 // "frame:type:<text>" types <text> as real key events (down, text, up per character), through the overlay menu / name
 //   entry first like a player's typing; "{Escape}" (any SDL key name) presses that key. No ',' or ':' in <text>.
 // "frame:sdlpad:<button>:frames" / "frame:sdlkey:<key>:frames" hold a controller button / key as real events (down
@@ -293,6 +359,10 @@ static void host_test_frame(uint64_t frame) {
             if (frame < start || frame >= start + len) continue;
             if (!strcmp(dev, "key")) { SDL_Scancode sc = SDL_GetScancodeFromName(name); if (sc) keys[sc] = 1; }
             else if (!strcmp(dev, "lstick")) sscanf(name, "%d/%d", &sx, &sy);
+            else if (!strcmp(dev, "mouse")) {  // the mouse moved by <dx>/<dy> counts each frame (the mouse camera)
+                float mx, my;
+                if (sscanf(name, "%f/%f", &mx, &my) == 2) mouse_add(mx, my);
+            }
             else { int h = bind_pad_from_name(name); if (h >= 0) padm |= 1u << h; }
         }
         bool kch = memcmp(keys, test_keys, sizeof keys) != 0, pch = padm != test_pad || sx != test_lx || sy != test_ly;
@@ -436,7 +506,14 @@ static void fill_state(Cpu *c) {
         if (renderer_present_count() < until) b |= 1ull << BTN_PLUS;
     }
     int32_t lx = clamp_axis((menu ? 0 : key_lx + pad_lx) + script_lx), ly = clamp_axis((menu ? 0 : key_ly + pad_ly) + script_ly);
-    int32_t rx = clamp_axis((menu ? 0 : key_rx + pad_rx) + script_rx), ry = clamp_axis((menu ? 0 : key_ry + pad_ry) + script_ry);
+    int32_t mrx = 0, mry = 0;
+    mouse_stick(&mrx, &mry);  // (sampled even under a menu: its movement there is dropped, not saved up)
+    {   // ODYSSEY_LOG_MOUSE=1: the mouse's right stick as the game reads it
+        static int lm = -1, n;
+        if (lm < 0) lm = getenv("ODYSSEY_LOG_MOUSE") != NULL;
+        if (lm && (mrx || mry) && n++ % 20 == 0) LOG("[input] mouse camera: right stick %d %d%s\n", mrx, mry, menu ? " (menu up: dropped)" : "");
+    }
+    int32_t rx = clamp_axis((menu ? 0 : key_rx + pad_rx + mrx) + script_rx), ry = clamp_axis((menu ? 0 : key_ry + pad_ry + mry) + script_ry);
     // stick directions also appear as buttons (bits 16-23)
     if (lx < -16000) b |= 1ull << 16;
     if (ly > 16000) b |= 1ull << 17;

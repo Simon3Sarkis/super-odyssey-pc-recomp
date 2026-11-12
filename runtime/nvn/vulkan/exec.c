@@ -2239,7 +2239,9 @@ static void remember_frame_hold(Prog *p) {
 // too: a new player's first frame of the Sand Kingdom (2026-11-02, cold caches) stood 2.4 s for the 450 libraries of
 // such programs (all drawn then), the loading screen before it 10 s long. ODYSSEY_PREWARM_KNOWN=0: as before.
 // ODYSSEY_PREWARM=0: programs build when first drawn; =2: bulk ones too.
+static _Atomic uint64_t prog_setups;  // programs the game set up so far (backend_execute: when to prefetch)
 void renderer_program_hint(NvnProgram *np, bool bulk) {
+    atomic_fetch_add(&prog_setups, 1);
     static int on = -1, known_whole = -1;
     if (on < 0) { const char *e = getenv("ODYSSEY_PREWARM"); on = e ? atoi(e) : 1; }
     if (known_whole < 0) { const char *e = getenv("ODYSSEY_PREWARM_KNOWN"); known_whole = e ? atoi(e) != 0 : 1; }
@@ -7108,7 +7110,13 @@ void backend_execute(uint64_t handle) {
     PROF_T0();
     static int prefetch = -1;  // ODYSSEY_PREFETCH=0: off
     if (prefetch < 0) { const char *e = getenv("ODYSSEY_PREFETCH"); prefetch = !e || atoi(e) != 0; }
-    if (prefetch && game_is_odyssey()) prefetch_programs(handle, 0);
+    // The walk over the whole list only finds programs it hasn't seen: none once a scene's programs were all bound
+    // (it walked every command of every list each frame for nothing - 3% of a Steam Deck's CPU samples). So only
+    // while the game sets up programs, and 600 frames after its last.
+    static uint64_t seen_setups, quiet_since;
+    uint64_t setups = atomic_load(&prog_setups), frame = renderer_present_count();
+    if (setups != seen_setups) seen_setups = setups, quiet_since = frame;
+    if (prefetch && game_is_odyssey() && frame - quiet_since < 600) prefetch_programs(handle, 0);
     exec_list(handle, 0);
     PROF_ADD(prof_exec);
     if (prof) cum_exec += SDL_GetTicksNS() - prof_t0_;

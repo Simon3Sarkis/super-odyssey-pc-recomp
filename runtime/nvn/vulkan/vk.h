@@ -97,6 +97,8 @@ typedef struct TexBackend {
     uint8_t astc_bw, astc_bh;  // ASTC without GPU support: decoded to RGBA8 on upload (runtime/nvn/astc.c)
     bool astc_srgb;
     int reg;  // slot in textures.c's live list + 1 (a reboot destroys them all)
+    int8_t kbp;        // the game's button icon sheet (nvn/kbprompts.c): 1 yes, -1 no, 0 not looked at
+    uint32_t kbp_gen;  // what its icons showed at its last upload (kbprompts_generation)
 } TexBackend;
 
 TexBackend *vk_tex(NvnTexture *t, bool for_render);  // backend image (uploads CPU contents unless for_render)

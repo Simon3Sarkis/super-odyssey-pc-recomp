@@ -25,6 +25,8 @@ enum { FPS_60 = 0, FPS_120 = 1 };
 // The image in a window of another shape: 16:9 with bars, or (Vulkan) filling a wider window with more of the scene
 // at the sides (runtime/hle/odyssey_wide.c)
 enum { ASPECT_16_9 = 0, ASPECT_FILL = 1 };
+// Button prompts: Auto follows the device used last (keyboard / mouse or controller)
+enum { PROMPTS_AUTO = 0, PROMPTS_CONTROLLER = 1, PROMPTS_KEYBOARD = 2, PROMPTS_COUNT };
 // System language served to the game (runtime/services/am.c GetDesiredLanguage, services/hid_set.c GetLanguageCode):
 // the game picks its text language from it, as it would from the Switch's own system setting. LANG_AUTO follows the
 // host locale ($LC_ALL / $LC_MESSAGES / $LANG); the rest are the codes of the languages the game has text for.
@@ -53,6 +55,7 @@ typedef struct {
     bool mouse_camera;   // the mouse turns the camera (the right stick; the pointer is held in the window while playing)
     int mouse_sensitivity;  // percent, 25..400 (runtime/hle/input.c mouse_stick)
     bool mouse_invert_y; // moving the mouse up turns the camera down
+    int prompts;         // PROMPTS_*: the game's button icons as key caps / a mouse, or the controller's (nvn/kbprompts.c)
     int language;        // LANG_AUTO or an index into g_language_codes: the game's text language
     int aniso;           // ANISO_GAME or 2, 4, 8, 16: the most anisotropic filtering of filtered, mipmapped textures that
                          // tile (nvn/vulkan/textures.c vk_sampler; read at start)

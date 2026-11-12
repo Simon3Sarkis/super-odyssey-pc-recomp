@@ -200,6 +200,8 @@ void settings_load(void) {
         else if (!strcmp(key, "mouse_sensitivity"))
             g_settings.mouse_sensitivity = atoi(val) < 25 ? 25 : atoi(val) > 400 ? 400 : atoi(val);
         else if (!strcmp(key, "mouse_invert_y")) g_settings.mouse_invert_y = atoi(val) != 0;
+        else if (!strcmp(key, "button_prompts"))
+            g_settings.prompts = !strcmp(val, "controller") ? PROMPTS_CONTROLLER : !strcmp(val, "keyboard") ? PROMPTS_KEYBOARD : PROMPTS_AUTO;
         else if (!strcmp(key, "language")) {  // ("auto" or one of the game's codes; anything else: auto)
             g_settings.language = LANG_AUTO;
             for (int i = 1; i < N_LANGUAGES; i++)
@@ -248,6 +250,8 @@ void settings_save(void) {
     fprintf(f, "mouse_camera = %d\n", g_settings.mouse_camera);
     fprintf(f, "mouse_sensitivity = %d\n", g_settings.mouse_sensitivity);
     fprintf(f, "mouse_invert_y = %d\n", g_settings.mouse_invert_y);
+    fprintf(f, "button_prompts = %s\n", g_settings.prompts == PROMPTS_CONTROLLER ? "controller" :
+                                        g_settings.prompts == PROMPTS_KEYBOARD ? "keyboard" : "auto");
     if (g_settings.res_mode == RES_DYNAMIC) fprintf(f, "resolution = dynamic\n");
     else if (g_settings.res_mode == RES_Q75) fprintf(f, "resolution = 75%%\n");
     else if (g_settings.res_mode == RES_Q25) fprintf(f, "resolution = 25%%\n");

@@ -15,6 +15,7 @@
 #include "../nvn/renderer.h"
 #include "../settings.h"
 #include "../input_bind.h"
+#include "../nvn/kbprompts.h"
 
 enum {
     BTN_A = 0, BTN_B, BTN_X, BTN_Y, BTN_LSTICK, BTN_RSTICK, BTN_L, BTN_R, BTN_ZL, BTN_ZR, BTN_PLUS, BTN_MINUS,
@@ -228,9 +229,11 @@ void input_handle_event(const SDL_Event *e) {
         SDL_JoystickID *ids = SDL_GetGamepads(&n);
         if (n > 0 && !pad) { pad = SDL_OpenGamepad(ids[0]); LOG("[input] gamepad: %s\n", SDL_GetGamepadName(pad)); note_family(); }
         SDL_free(ids);
+        kbprompts_note_device(!pad);  // (the button prompts before any press: the controller's if one is there)
     }
     switch (e->type) {
     case SDL_EVENT_KEY_DOWN: case SDL_EVENT_KEY_UP:
+        if (e->type == SDL_EVENT_KEY_DOWN && !e->key.repeat) kbprompts_note_device(true);
         if (e->type == SDL_EVENT_KEY_DOWN && e->key.scancode == SDL_SCANCODE_F9 && !e->key.repeat) g_debug_frame_request = 1;
         if (e->key.scancode < SDL_SCANCODE_COUNT) keys_down[e->key.scancode] = e->type == SDL_EVENT_KEY_DOWN;
         recompute_keyboard();
@@ -240,9 +243,11 @@ void input_handle_event(const SDL_Event *e) {
         break;
     case SDL_EVENT_GAMEPAD_REMOVED:
         if (pad && SDL_GetGamepadID(pad) == e->gdevice.which) { SDL_CloseGamepad(pad); pad = NULL; note_family(); }
+        if (!pad) kbprompts_note_device(true);
         recompute_pad();
         break;
     case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+        kbprompts_note_device(false);
         // SDL's live state may already contain the release when its queued press is handled.
         if (pad && SDL_GetGamepadID(pad) == e->gbutton.which) {
             uint64_t buttons = 0;
@@ -252,10 +257,17 @@ void input_handle_event(const SDL_Event *e) {
         }
         // Fall through to refresh the live state and sticks.
     case SDL_EVENT_GAMEPAD_AXIS_MOTION: case SDL_EVENT_GAMEPAD_BUTTON_UP:
+        if (e->type == SDL_EVENT_GAMEPAD_AXIS_MOTION && abs(e->gaxis.value) > 16000) kbprompts_note_device(false);
         recompute_pad();
         break;
     case SDL_EVENT_MOUSE_MOTION:
-        if (mouse_held) mouse_add(e->motion.xrel, e->motion.yrel);
+        if (mouse_held) {
+            mouse_add(e->motion.xrel, e->motion.yrel);
+            if (fabsf(e->motion.xrel) + fabsf(e->motion.yrel) > 2) kbprompts_note_device(true);  // (not a jitter)
+        }
+        break;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+        kbprompts_note_device(true);
         break;
     case SDL_EVENT_WINDOW_FOCUS_LOST:
         input_reset();

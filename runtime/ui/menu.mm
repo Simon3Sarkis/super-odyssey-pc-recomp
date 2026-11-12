@@ -927,6 +927,13 @@ static void tab_about(void) {
     }
     toggle("Invert mouse up / down", &g_settings.mouse_invert_y);
     hint("Moving the mouse up turns the camera down instead.");
+    {
+        static const char *const names[PROMPTS_COUNT] = {"Auto", "Controller", "Keyboard and mouse"};
+        int i = g_settings.prompts >= 0 && g_settings.prompts < PROMPTS_COUNT ? g_settings.prompts : PROMPTS_AUTO;
+        if (choice("Button prompts", &i, names, PROMPTS_COUNT)) g_settings.prompts = i;
+    }
+    hint("The game's button icons: Auto shows the keys you bound (and the mouse for the camera) after you use the "
+         "keyboard or mouse, and the controller's buttons after you use a controller.");
     toggle("Skip controller tips", &g_settings.skip_intro);
     hint("Leaves out the Joy-Con instructions screen's wait before the title screen. Applies at the next start.");
     ImGui::Spacing();

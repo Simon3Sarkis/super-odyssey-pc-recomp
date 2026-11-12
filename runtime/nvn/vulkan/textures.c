@@ -11,6 +11,7 @@
 #include "../astc.h"
 #include "../output_scale.h"
 #include "../renderer.h"
+#include "../kbprompts.h"
 #include "../../settings.h"
 
 // ================================================================== formats
@@ -591,8 +592,11 @@ uint64_t prof_tex_checks, prof_tex_samples, prof_tex_full, prof_tex_full_bytes, 
 static void upload_texture(NvnTexture *t, TexBackend *b) {
     if (!t->addr || t->target == 10) return;
     uint64_t frame = vk_frame_counter();
-    if (b->uploaded && b->checked_frame == frame) return;
-    if (b->uploaded && !b->dynamic && ((frame + ((uintptr_t)b >> 6)) & 7)) return;
+    // the button icon sheet whose icons should change (keyboard / controller, a rebind): uploaded again, its bytes
+    // unchanged (nvn/kbprompts.c)
+    bool repatch = b->kbp > 0 && b->kbp_gen != kbprompts_generation();
+    if (b->uploaded && b->checked_frame == frame && !repatch) return;
+    if (b->uploaded && !b->dynamic && ((frame + ((uintptr_t)b >> 6)) & 7) && !repatch) return;
     const FormatInfo *fi = t->layout.fmt;
     if (!fi || !fi->bpb) return;
     VkFmt mf = fmt_of(t->format);
@@ -604,7 +608,7 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
     const uint8_t *mem = (const uint8_t *)(uintptr_t)t->addr;
     static int always_full = -1;
     if (always_full < 0) always_full = getenv("ODYSSEY_TEX_FULLHASH") ? 1 : 0;
-    bool full = b->dynamic || !b->uploaded || always_full;
+    bool full = b->dynamic || !b->uploaded || always_full || repatch;
     bool periodic = frame - b->full_frame >= 120 && full_hash_budget >= total;  // (safety net: a full hash now and then)
     if (!full && periodic) { full = true; full_hash_budget -= total; }
     // The OS's page write tracking (exec.c vk_pages_changed, shared with the vertex cache): texture memory the CPU
@@ -618,7 +622,7 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
         int ch = vk_pages_changed(t->addr, total, b->wgen, &now);
         if (ch >= 0) {
             b->wgen = now;
-            if (!ch && b->uploaded) {
+            if (!ch && b->uploaded && !repatch) {
                 if (!periodic) { prof_tex_watch_skips++; return; }
                 if (b->dynamic) full_hash_budget -= total;  // (the others took theirs above)
             }
@@ -633,8 +637,11 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
     uint64_t h = hash_full(mem, total);
     b->full_frame = frame;
     b->sample_hash = fnv_sample(mem, total);
-    if (b->uploaded && h == b->data_hash) return;
+    if (b->uploaded && h == b->data_hash && !repatch) return;
     if (b->uploaded && h != b->data_hash) b->dynamic = true;
+    if (!b->uploaded || h != b->data_hash)  // (new contents: the button icon sheet? looked at once deswizzled, below)
+        b->kbp = t->layout.layers <= 1 && kbprompts_candidate(t->width, t->height, fi->bw, fi->bh, fi->bpb) ? 2 : -1;
+    if (b->kbp > 0) b->kbp_gen = kbprompts_generation();
     b->data_hash = h;
     b->uploaded = true;
     if ((t->target == 8 || t->target == 9) && getenv("ODYSSEY_LOG_CUBES")) {  // (where cube map contents come from)
@@ -683,6 +690,8 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
             } else {
                 tegra_deswizzle(src, lin, l.wb, l.hb, l.d, fi->bpb, l.block_height_log2, l.block_depth_log2);
             }
+            if (b->kbp == 2 && lv == 0) b->kbp = !expand && kbprompts_identify(lin, l.wb, l.hb) ? 1 : -1;
+            if (b->kbp == 1 && !expand) kbprompts_apply(lv, lin, l.wb, l.hb);  // (keyboard / mouse icons)
             if (expand) {  // RGB8 -> RGBA8
                 uint8_t *o = s.ptr;
                 uint64_t n = (uint64_t)l.wb * l.hb * l.d;

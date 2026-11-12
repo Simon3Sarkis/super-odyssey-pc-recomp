@@ -924,6 +924,7 @@ static void tab_about(void) {
         int i = 0;
         for (int k = 0; k < 8; k++) if (pct[k] <= g_settings.mouse_sensitivity) i = k;
         if (choice("Mouse sensitivity", &i, names, 8)) g_settings.mouse_sensitivity = pct[i];
+        hint("How far the mouse moves for the camera to turn at full speed. A quick flick turns it faster still.");
     }
     toggle("Invert mouse up / down", &g_settings.mouse_invert_y);
     hint("Moving the mouse up turns the camera down instead.");

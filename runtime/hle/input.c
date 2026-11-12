@@ -95,10 +95,13 @@ static void recompute_pad(void) {
 // menu is up, the pointer is held in the window (SDL relative mode, input_mouse_window) and its movement becomes the
 // right stick: the speed of the movement, sampled every ~12 ms (the game polls several times a frame), is the tilt.
 // MOUSE_FULL counts a second tilt it all the way at 100% sensitivity; any movement tilts it at least MOUSE_MIN, past
-// the game's own stick deadzone, so a slow movement still turns the camera.
-// ODYSSEY_MOUSE_FULL / ODYSSEY_MOUSE_MIN (0..0.9) override them (tuning).
-#define MOUSE_FULL 1500.0f
-#define MOUSE_MIN 0.2f
+// the game's own stick deadzone, so a slow movement still turns the camera. A faster movement goes on past full tilt,
+// up to MOUSE_OVER times it (a stick can't: the camera turns faster than a controller can make it, where the game
+// takes such values; where it doesn't, they count as full tilt).
+// ODYSSEY_MOUSE_FULL / ODYSSEY_MOUSE_MIN (0..0.9) / ODYSSEY_MOUSE_OVER (1..8) override them (tuning).
+#define MOUSE_FULL 400.0f
+#define MOUSE_MIN 0.25f
+#define MOUSE_OVER 3.0f
 static _Atomic int32_t mouse_acc_x, mouse_acc_y;  // movement since the last sample, in 1/16 counts
 static _Atomic bool mouse_held;                   // the pointer is held: its movement goes to the camera
 static void mouse_add(float dx, float dy) {
@@ -109,14 +112,15 @@ static void mouse_forget(void) { atomic_store(&mouse_acc_x, 0), atomic_store(&mo
 
 // The mouse's share of the right stick now (y up)
 static void mouse_stick(int32_t *rx, int32_t *ry) {
-    static float full = 0, mn = -1;
+    static float full = 0, mn = -1, over = 0;
     if (mn < 0) {
-        const char *f = getenv("ODYSSEY_MOUSE_FULL"), *m = getenv("ODYSSEY_MOUSE_MIN");
+        const char *f = getenv("ODYSSEY_MOUSE_FULL"), *m = getenv("ODYSSEY_MOUSE_MIN"), *o = getenv("ODYSSEY_MOUSE_OVER");
         full = f && atof(f) > 0 ? (float)atof(f) : MOUSE_FULL;
         mn = m ? fminf(fmaxf((float)atof(m), 0), 0.9f) : MOUSE_MIN;
+        over = o ? fminf(fmaxf((float)atof(o), 1), 8) : MOUSE_OVER;
     }
     static uint64_t last;
-    static float sx, sy;  // the last sample's tilt, -1..1
+    static float sx, sy;  // the last sample's tilt, -MOUSE_OVER..MOUSE_OVER
     uint64_t now = plat_now_ns();
     double dt = last ? (now - last) / 1e9 : 0;
     if (!last || dt > 0.25) { last = now; mouse_forget(); sx = sy = 0; return; }  // (first poll, or after a pause)
@@ -126,8 +130,8 @@ static void mouse_stick(int32_t *rx, int32_t *ry) {
         float k = g_settings.mouse_sensitivity / 100.0f / full / (float)dt;  // counts -> tilt
         float vx = dx * k, vy = -dy * k * (g_settings.mouse_invert_y ? -1 : 1);  // (screen y is down)
         float r = sqrtf(vx * vx + vy * vy);
-        if (r > 0) {  // the direction kept, the size from MOUSE_MIN up
-            float t = mn + (1 - mn) * fminf(r, 1);
+        if (r > 0) {  // the direction kept, the size from MOUSE_MIN up (past 1: as fast as it moved, to MOUSE_OVER)
+            float t = r <= 1 ? mn + (1 - mn) * r : fminf(r, over);
             vx *= t / r, vy *= t / r;
         }
         sx = vx, sy = vy;
@@ -525,7 +529,12 @@ static void fill_state(Cpu *c) {
         if (lm < 0) lm = getenv("ODYSSEY_LOG_MOUSE") != NULL;
         if (lm && (mrx || mry) && n++ % 20 == 0) LOG("[input] mouse camera: right stick %d %d%s\n", mrx, mry, menu ? " (menu up: dropped)" : "");
     }
-    int32_t rx = clamp_axis((menu ? 0 : key_rx + pad_rx + mrx) + script_rx), ry = clamp_axis((menu ? 0 : key_ry + pad_ry + mry) + script_ry);
+    int32_t rx = clamp_axis((menu ? 0 : key_rx + pad_rx) + script_rx), ry = clamp_axis((menu ? 0 : key_ry + pad_ry) + script_ry);
+    if (!menu && (mrx || mry)) {  // (the mouse may go past full tilt: MOUSE_OVER)
+        const int32_t lim = (int32_t)(32767 * 8);
+        rx = rx + mrx > lim ? lim : rx + mrx < -lim ? -lim : rx + mrx;
+        ry = ry + mry > lim ? lim : ry + mry < -lim ? -lim : ry + mry;
+    }
     // stick directions also appear as buttons (bits 16-23)
     if (lx < -16000) b |= 1ull << 16;
     if (ly > 16000) b |= 1ull << 17;

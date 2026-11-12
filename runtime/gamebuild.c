@@ -266,6 +266,7 @@ typedef struct {
     char src[1100], obj[1100], log[1100];
     unsigned long long bytes;
     bool generated;  // (deleted once compiled; the entry file is the shipped one)
+    bool started;
 } Unit;
 
 typedef struct {
@@ -283,6 +284,7 @@ static void add_unit(Units *us, const char *src, const char *work, const char *s
     snprintf(u->obj, sizeof u->obj, "%s" SEP "%s.o", work, stem);
     snprintf(u->log, sizeof u->log, "%s" SEP "%s.log", work, stem);
     u->generated = generated;
+    u->started = false;
     struct stat st;
     u->bytes = stat(src, &st) == 0 ? (unsigned long long)st.st_size : 0;
 }
@@ -303,6 +305,11 @@ static void add_cflags(Args *a, const Tools *t) {
             add(a, f);
         }
     }
+    // No debug info: zig cc emits it unless told not to, and for the few huge lifted functions (sdk_053, main_160:
+    // 7,000-10,000 lines each) it made the build crawl - on a Steam Deck one file took 57+ minutes with it and 6.7
+    // without. Crash reports still name functions (the symbol table). zig cc ignores -g0 (it adds -gdwarf-4 after it,
+    // and the last one wins); -s, its "strip", is what leaves the debug info out.
+    if (t->zig) add(a, "-s");
 }
 
 static char g_modules_def[200];  // -DGAMELIB_MODULES=X(main) X(subsdk0) X(sdk): the modules this build has
@@ -447,13 +454,20 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
         if (!ok) break;
         for (int k = 0; k < units.n; k++) written += units.u[k].bytes;
 
-        // compiles (unit 0, the entry, last: it lists the modules' tables, which come at the end)
-        while (nrun < jobs && next < units.n) {
-            if (next == 0) { next = 1; continue; }
-            PlatProc p = start_compile(&t, &units.u[next], false);
+        // compiles (unit 0, the entry, last: it lists the modules' tables, which come at the end). The biggest file
+        // waiting goes first: a few files hold enormous functions (7,000-10,000 lines) that take many minutes alone,
+        // and started late they were the whole build's tail (the generator itself takes seconds, so they're all
+        // waiting soon). next: the files started so far.
+        while (nrun < jobs) {
+            int pick = -1;
+            for (int k = 1; k < units.n; k++)
+                if (!units.u[k].started && (pick < 0 || units.u[k].bytes > units.u[pick].bytes)) pick = k;
+            if (pick < 0) break;
+            PlatProc p = start_compile(&t, &units.u[pick], false);
             if (!p) { snprintf(why, why_size, "the compiler didn't start"); ok = false; break; }
-            run[nrun].p = p, run[nrun].unit = next++;
-            nrun++;
+            units.u[pick].started = true;
+            run[nrun].p = p, run[nrun].unit = pick;
+            nrun++, next++;
         }
         for (int k = 0; k < nrun; k++) {
             int r = finished(run[k].p);
@@ -471,7 +485,7 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
             run[k--] = run[--nrun];
         }
         if (!ok) break;
-        if (gens_done && next == units.n && nrun == 0) break;
+        if (gens_done && next == units.n - 1 && nrun == 0) break;  // (all but the entry, unit 0, done)
 
         // progress: the generator's share (its functions written), the compiler's (bytes of C compiled, of an
         // estimate of all of it while the generator still writes)

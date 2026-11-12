@@ -4,12 +4,12 @@
 
 > [!IMPORTANT]
 > **You must bring your own game.** This project contains **no game files, no game code, no assets and no keys** -
-> only the installer and the source code. To play, you need **your own copy of Super Mario Odyssey dumped from your
-> own Nintendo Switch** (NSP, XCI or an extracted folder) and the **prod.keys from that same console**. Instructions
-> for dumping games or keys are not provided, and requests for game files or keys will be closed.
+> only the installer and the source code. To play, you need the **`exefs` and `romfs` folders of your own copy of
+> Super Mario Odyssey**, already extracted. No keys are needed or asked for. Instructions for getting game files are
+> not provided, and requests for game files or keys will be closed.
 
 > [!WARNING]
-> **v0.1.0 is an early preview.** The whole game can be played, but there are known issues (see
+> **This is an early preview.** The whole game can be played, but there are known issues (see
 > [Known issues](#known-issues)) and things that still need fixing. Please report what you find.
 
 ## What it is
@@ -18,9 +18,8 @@ The game's ARM64 code is translated to C ahead of time and compiled into a regul
 while you play. The parts of the Switch the game talks to (kernel, system services, the NVN graphics API, audio) are
 reimplemented on the PC, with Vulkan for graphics.
 
-- **Installer** that takes your NSP / XCI (plus the optional **1.4.1 update**) or an extracted folder, and your prod.keys
+- **Installer** that takes your game's extracted `exefs` and `romfs` folders (1.0.0, or 1.4.1 with the update applied)
 - **Every shader compiled at install time**, so effects don't stutter the first time they appear
-- **No doubled install size**: your game file is read in place and written once as a single data image
 - **Up to 4x internal resolution**, NVIDIA **DLSS / DLAA**, AMD FSR 1, SMAA, ultrawide *Fill window*
 - **Native 120 FPS** (experimental) or frame interpolation, anisotropic filtering, smooth gradients
 - Keyboard and controller rebinding, RomFS mods, an in-game settings menu, and **built-in updates** from this page
@@ -33,19 +32,14 @@ Windows 10 / 11 (x64) only for now.
    you own (for example `D:\Games`, **not** Program Files). Start `SuperOdysseyRecomp.exe`.
    It isn't code-signed: if SmartScreen says "Windows protected your PC", choose *More info*, then *Run anyway*.
 2. The installer asks for:
-   1. **Your game**: Super Mario Odyssey **1.0.0** (the base game) as an **NSP** or **XCI**, or the folder with an
-      extracted `exefs` and `romfs`. Compressed NSZ / XCZ files must be decompressed first.
-   2. **Update 1.4.1** (optional, for an NSP / XCI): the update NSP dumped from your console. The installer applies it
-      for you.
-   3. **prod.keys** (for an NSP / XCI): if it sits next to the game file, in a folder beside it, or in
-      `%USERPROFILE%\.switch`, it's found by itself. Keys are only read on your PC to decrypt your own game file; they
-      are never copied, uploaded or written into any log.
-   4. **Install the game to**: where the game data, saves and shaders go (about 12 GB).
-3. Press **Install**. It checks every block of your game file, writes the game data, recompiles the game code for
-   your PC (a few minutes) and compiles every shader (several minutes, once).
+   1. **Your game**: the folder that holds the extracted **`exefs`** and **`romfs`** folders of your own Super Mario
+      Odyssey - version **1.0.0**, or **1.4.1** with the update already applied (its full `romfs`, not only the
+      update's). `exefs` holds `main`, `main.npdm` and `sdk`; `romfs` holds folders such as `StageData` and
+      `SystemData`.
+   2. **Install the game to**: where the game data, saves and shaders go (about 12 GB).
+3. Press **Install**. It copies the game data, recompiles the game code for your PC (a few minutes) and compiles every
+   shader (several minutes, once).
 4. Press **Play**. The game opens in fullscreen; later starts go straight to the game.
-
-<p align="center"><img src="docs/installer.png" alt="The installer" width="80%"></p>
 
 ## Updating
 
@@ -81,7 +75,7 @@ Open an [issue](../../issues) with:
 
 - what happened and where in the game (a screenshot helps),
 - your game version (1.0.0 or 1.4.1), Windows version, CPU and GPU,
-- the log, `SuperOdysseyRecomp.log`, from the install folder (it never contains your keys).
+- the log, `SuperOdysseyRecomp.log`, from the install folder (it doesn't contain any game files).
 
 For a graphics glitch, pressing **F9** where it happens saves the frame's details into the log, which helps a lot.
 
@@ -90,7 +84,7 @@ For a graphics glitch, pressing **F9** where it happens saves the frame's detail
 - Windows 10 / 11 (x64), a CPU with AVX2 (Intel Haswell / AMD Zen or newer), a GPU with Vulkan 1.3 and an up-to-date
   driver
 - 8 GB RAM (16 GB recommended), about 12 GB free disk space
-- Super Mario Odyssey 1.0.0 (and optionally the 1.4.1 update) and prod.keys, dumped from your own console
+- The extracted `exefs` and `romfs` folders of your own Super Mario Odyssey (1.0.0, or 1.4.1 with the update applied)
 
 ## Settings
 
@@ -144,8 +138,8 @@ Never share `extracted\` or anything built from it: it's Nintendo's game.
 Needs MSYS2 (UCRT64: clang, SDL3, FFmpeg, shaderc, Python) - `tools\setup_windows.ps1` installs them. See
 [docs/BUILD-windows.md](docs/BUILD-windows.md).
 
-1. Put your game files into `extracted\` (`extracted\exefs\`, `extracted\romfs\`), or start the built program and let
-   its installer do it from your NSP / XCI.
+1. Put your extracted game folders into `extracted\` (`extracted\exefs\`, `extracted\romfs\`), or start the built
+   program and let its installer copy them there.
 2. From an MSYS2 UCRT64 shell in this folder:
 
        make gen        # recompile the game from extracted/exefs into generated/
@@ -161,8 +155,7 @@ Needs MSYS2 (UCRT64: clang, SDL3, FFmpeg, shaderc, Python) - `tools\setup_window
   `odyssey_patches.py` holds the few game-specific patches for 1.0.0 and 1.4.1.
 - `runtime/` - the program: module loader, a small Horizon kernel, IPC services, HLE of SDK functions, NVN on Vulkan
   with a Maxwell shader translator (`runtime/nvn`), movies with FFmpeg, the menu (Dear ImGui), the installer
-  (`runtime/ui/setup.mm`), the NSP / XCI and update reader (`runtime/nxpkg.c`), the game code build
-  (`runtime/gamebuild.c`) and the updater (`runtime/updater.c`).
+  (`runtime/ui/setup.mm`), the game code build (`runtime/gamebuild.c`) and the updater (`runtime/updater.c`).
 - Debugging tools are environment variables (`ODYSSEY_*`), documented where they're read.
 
 Built with heavy help from AI coding agents, directed and tested by a human.
@@ -173,8 +166,8 @@ Built with heavy help from AI coding agents, directed and tested by a human.
   original repository is no longer online.
 - **[LAS Recomp](https://github.com/peiikai/LASRecomp)** by Peiikai and its contributors - the static recompiler,
   runtime and renderer Power Moon Recomp is built on, and the frame interpolation (MIT license).
-- **[MacNativeGames](https://github.com/ly05010419/MacNativeGames)** - the NSP / XCI reader that `runtime/nxpkg.c` is
-  ported from (MIT license, `tools/vendor/macnativegames`), and
+- **[MacNativeGames](https://github.com/ly05010419/MacNativeGames)** - the game package reading code `runtime/nxpkg.c`
+  is ported from (MIT license, `tools/vendor/macnativegames`), and
   **[TotK PC Recomp](https://github.com/valentderah/totk-pc-recomp)**'s hactool build script (`tools/build_hactool.py`,
   MIT) used for checking
 - [OdysseyDecomp](https://github.com/MonsterDruide1/OdysseyDecomp) - names and structure of the game's code, used for
@@ -199,7 +192,7 @@ The installer's pixel-art background and the icon are original artwork made for 
 This is a fan project. It is not affiliated with, endorsed by or sponsored by Nintendo. *Super Mario Odyssey* and
 *Nintendo Switch* are trademarks of Nintendo. No game files, game code, assets, fonts or keys are included in this
 repository or its releases, and nothing built from your game files (`extracted/`, `generated/`, `odyssey_game.dll`)
-may be shared. You must provide your own legally obtained copy of the game and your own console's keys.
+may be shared. You must provide the extracted files of your own legally obtained copy of the game.
 
 ## License
 

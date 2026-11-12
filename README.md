@@ -41,6 +41,8 @@ Windows 10 / 11 (x64) only for now.
    shader (several minutes, once).
 4. Press **Play**. The game opens in fullscreen; later starts go straight to the game.
 
+<p align="center"><img src="docs/installer.png" alt="The installer" width="80%"></p>
+
 ## Updating
 
 New versions are published on this page. The game checks for them at start (in the background - only GitHub is

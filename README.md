@@ -5,7 +5,7 @@
 > [!IMPORTANT]
 > **You must bring your own game.** This project contains **no game files, no game code, no assets and no keys** -
 > only the installer and the source code. To play, you need the **`exefs` and `romfs` folders of your own copy of
-> Super Mario Odyssey**, already extracted. No keys are needed or asked for. Instructions for getting game files are
+> Super Mario Odyssey**, already extracted. Instructions for getting game files are
 > not provided, and requests for game files or keys will be closed.
 
 > [!WARNING]

@@ -29,7 +29,7 @@ Windows 10 / 11 (x64) only for now.
 
 ## Install
 
-1. Download `Super Odyssey PC Recomp-<version>-windows.zip` from [Releases](../../releases) and extract it anywhere
+1. Download the latest `...-windows.zip` from [Releases](../../releases) and extract it anywhere
    you own (for example `D:\Games`, **not** Program Files). Start `SuperOdysseyRecomp.exe`.
    It isn't code-signed: if SmartScreen says "Windows protected your PC", choose *More info*, then *Run anyway*.
 2. The installer asks for:

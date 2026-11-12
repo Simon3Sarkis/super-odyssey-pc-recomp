@@ -102,7 +102,7 @@ static void recompute_pad(void) {
 // ODYSSEY_MOUSE_FULL / ODYSSEY_MOUSE_MIN (0..0.9) / ODYSSEY_MOUSE_OVER (1..40) override them (tuning).
 #define MOUSE_FULL 400.0f
 #define MOUSE_MIN 0.25f
-#define MOUSE_OVER 20.0f
+#define MOUSE_OVER 10.0f
 static _Atomic uint64_t g_camera_asked_ns;  // the game's camera last read its stick (the mouse goes there, not the pad)
 static _Atomic int32_t mouse_acc_x, mouse_acc_y;  // movement since the last sample, in 1/16 counts
 static _Atomic bool mouse_held;                   // the pointer is held: its movement goes to the camera
@@ -144,18 +144,46 @@ static void mouse_tilt(float *ox, float *oy) {
 
 // The mouse's share of the right stick (nn::hid units), when the game's camera isn't taking it itself
 static void mouse_stick(int32_t *rx, int32_t *ry) {
+    if (plat_now_ns() - atomic_load(&g_camera_asked_ns) < 100000000ull) return;  // (the camera has it: below)
     float x, y;
     mouse_tilt(&x, &y);
-    if (plat_now_ns() - atomic_load(&g_camera_asked_ns) < 100000000ull) return;  // (the camera has it: below)
     float r = sqrtf(x * x + y * y);
     if (r > 1) x /= r, y /= r;  // (a stick's reach)
     *rx += (int32_t)lroundf(x * 32767), *ry += (int32_t)lroundf(y * 32767);
 }
 
+// The mouse for the game's camera, once per camera update (its several reads in one update come within a moment of
+// each other and get the same): exactly the movement since the last update, as the tilt that turns the camera that
+// far at 60 updates a second - no smoothing over time and no minimum, so a sideways movement stays sideways and the
+// camera goes as far as the mouse did. The camera ignores a tilt under its threshold (0.3, the game's
+// CameraPoserFollowLimitFunction::getRotateStickThreshold): a smaller movement is kept and given with the next ones
+// once they add up past it (and forgotten after a pause), so slow movements turn the camera too.
+#define CAMERA_THRESHOLD 0.32f
+static void mouse_camera_frame(float *ox, float *oy) {
+    static uint64_t last;
+    static float fx, fy, cx, cy;  // this update's tilt; the counts not given yet
+    uint64_t now = plat_now_ns();
+    if (now - last > 6000000ull) {  // (a new update: more than 6 ms since the last read)
+        if (now - last > 250000000ull) cx = cy = 0;  // (after a pause: what was left over is old)
+        last = now;
+        cx += atomic_exchange(&mouse_acc_x, 0) / 16.0f, cy += atomic_exchange(&mouse_acc_y, 0) / 16.0f;
+        static float full = 0;
+        if (!full) { const char *f = getenv("ODYSSEY_MOUSE_FULL"); full = f && atof(f) > 0 ? (float)atof(f) : MOUSE_FULL; }
+        float k = g_settings.mouse_sensitivity / 100.0f * 60.0f / full;  // counts in a 60th of a second -> tilt
+        float vx = cx * k, vy = -cy * k * (g_settings.mouse_invert_y ? -1 : 1);  // (screen y is down)
+        float r = sqrtf(vx * vx + vy * vy);
+        if (r >= CAMERA_THRESHOLD) {
+            if (r > MOUSE_OVER) vx *= MOUSE_OVER / r, vy *= MOUSE_OVER / r;
+            fx = vx, fy = vy, cx = cy = 0;
+        } else fx = fy = 0;  // (kept for the next update)
+    }
+    *ox = fx, *oy = fy;
+}
+
 // ProjectCameraInput::calcInputStick(this, sead::Vector2f *out) (Odyssey; runtime/hle/hle_symbols.txt): the game's
 // camera reads its stick here - the right stick as the player's camera functions make it
 // (PlayerCameraFunction::calcCameraMoveInput(out, this->actor), what the game's own body does), and the mouse on top,
-// with no stick's limit. (The poser's options - inverted axes - apply after it, as to the stick.)
+// with no stick's limit (mouse_camera_frame). (The poser's options - inverted axes - apply after it, as to the stick.)
 void hle__ZNK18ProjectCameraInput14calcInputStickEPN4sead7Vector2IfEE(Cpu *c) {
     uint64_t self = c->x[0], out = c->x[1];
     c->x[0] = out;
@@ -165,7 +193,7 @@ void hle__ZNK18ProjectCameraInput14calcInputStickEPN4sead7Vector2IfEE(Cpu *c) {
     extern bool menu_input_captured(void);  // (runtime/ui/menu.mm: a menu has the controls)
     if (!out || menu_input_captured()) return;
     float x, y;
-    mouse_tilt(&x, &y);
+    mouse_camera_frame(&x, &y);
     float *v = (float *)(uintptr_t)out;
     v[0] += x, v[1] += y;
     static int lm = -1, n;

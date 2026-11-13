@@ -257,7 +257,12 @@ void plat_fatal_notice(void) {
             char *end = strchr(line, '\n');
             if (end) *end = 0;
             snprintf(text, sizeof text, "Super Odyssey PC Recomp stopped because of an error:\n\n%.600s", line);
-            if (strstr(line, "Vulkan") || strstr(line, "VK_") || strstr(line, "vk")) {
+            // (VK_ERROR_OUT_OF_HOST_MEMORY -1 / VK_ERROR_OUT_OF_DEVICE_MEMORY -2: not a driver that is too old)
+            if (strstr(line, "failed: -2 (") || strstr(line, "failed: -1 (")) {
+                size_t l = strlen(text);
+                snprintf(text + l, sizeof text - l, "\n\nThe graphics card ran out of memory. Lower the internal resolution "
+                         "(menu > Graphics), or delete powermoon.ini in the game's folder to go back to the default settings.");
+            } else if (strstr(line, "Vulkan") || strstr(line, "VK_") || strstr(line, "vk")) {
                 size_t l = strlen(text);
                 snprintf(text + l, sizeof text - l, "\n\nSuper Odyssey PC Recomp needs a graphics driver with Vulkan 1.3: install the "
                          "latest driver for your GPU (NVIDIA, AMD or Intel).");

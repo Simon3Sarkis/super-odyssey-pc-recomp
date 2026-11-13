@@ -208,6 +208,13 @@ static float halton(unsigned index, unsigned base) {
     return value;
 }
 
+float vk_dlss_surface_lod_bias(const TexBackend *depth) {
+    if (!vk_dlss_enabled() || !depth || depth->image != dlss.source_depth || !dlss.ow || !dlss.w) return 0;
+    // Choose texture detail for the reconstructed pixel size, rather than the
+    // coarser input pixel size. DLAA and non-upscaled output need no adjustment.
+    return dlss.w < dlss.ow ? log2f((float)dlss.w / dlss.ow) : 0;
+}
+
 void vk_dlss_viewport_jitter(const TexBackend *depth, uint64_t frame, float offset[2]) {
     offset[0] = offset[1] = 0;
     // Learn the exact main-scene depth image from the bloom input, rather than

@@ -721,13 +721,16 @@ static void tab_graphics(void) {
     // One visible control, with independent amounts for each reconstruction method.
     if (g_settings.dlss_mode != DLSS_OFF || g_settings.upscaler == UPSCALE_FSR1) {
         bool dlss = g_settings.dlss_mode != DLSS_OFF;
-        float amount = dlss ? (g_settings.dlss_cas ? g_settings.dlss_sharpness : 0) : g_settings.fsr1_sharpness;
-        if (opt_slider("Sharpness", &amount, 0, 100, 10, dlss ? 0 : 90, "%g%%",
+        if (dlss) opt_toggle("CAS sharpening", &g_settings.dlss_cas, false,
+                             "Optional FidelityFX CAS after DLSS or DLAA. Turning it off preserves the unsharpened output. Changes at once.");
+        if (dlss && !g_settings.dlss_cas) opt_disable_next();
+        float amount = dlss ? g_settings.dlss_sharpness : g_settings.fsr1_sharpness;
+        if (opt_slider("Sharpness", &amount, 0, 100, 10, dlss ? 20 : 90, "%g%%",
                        dlss ? "Sharpens DLSS or DLAA using FidelityFX CAS. 0% turns sharpening off. Changes at once. "
                               "The amount is saved separately from other upscalers. High values can emphasize jagged edges."
                             : "Adjusts FSR 1's RCAS sharpening. 0% turns sharpening off. Changes at once. "
                               "The amount is saved separately from DLSS.")) {
-            if (dlss) { g_settings.dlss_sharpness = (int)amount; g_settings.dlss_cas = amount > 0; }
+            if (dlss) g_settings.dlss_sharpness = (int)amount;
             else g_settings.fsr1_sharpness = (int)amount;
         }
     }

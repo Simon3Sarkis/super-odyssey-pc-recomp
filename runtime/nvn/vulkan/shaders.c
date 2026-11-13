@@ -464,8 +464,7 @@ static const char *builtin_src(const char *name, int *stage) {
                "  vec3 amp=sqrt(clamp(min(lo,2.0-hi)/max(hi,vec3(1e-6)),0.0,1.0));\n"
                "  vec3 weight=-amp/mix(8.0,5.0,pc.a.x);\n"
                "  vec3 sharp=clamp((e+weight*(n+s+w+r))/(1.0+4.0*weight),0.0,1.0);\n"
-               "  vec3 c=mix(e,sharp,pc.a.x);\n"
-               "  o=vec4(sqrt(c),1);\n"
+               "  o=vec4(sqrt(sharp),1);\n"
                "}\n";
     }
     // FSR 1 RCAS: contrast-adaptive sharpening of the EASU output (same size). a.x = sharpness (exp2(-stops)),

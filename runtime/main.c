@@ -234,6 +234,12 @@ int main(int argc, char **argv) {
     // SDL's event pump checks audio device events. Initialize the subsystem on
     // this thread before guest audio services can open streams.
     const char *no_audio = getenv("ODYSSEY_NO_AUDIO");
+#ifdef __linux__
+    // Linux: SDL's PulseAudio output first (PipeWire's own PulseAudio server on SteamOS and most distributions), then
+    // PipeWire, then ALSA. SDL's PipeWire output dropped out at the game's start on several systems, which
+    // SDL_AUDIO_DRIVER=pulseaudio fixed (#15). SDL_AUDIO_DRIVER still picks one.
+    if (!getenv("SDL_AUDIO_DRIVER")) SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "pulseaudio,pipewire,alsa");
+#endif
     if ((!no_audio || !strcmp(no_audio, "0")) && !SDL_InitSubSystem(SDL_INIT_AUDIO))
         LOG("[audio] SDL audio init failed: %s\n", SDL_GetError());
     for (;;) {

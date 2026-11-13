@@ -11,6 +11,7 @@
 #include <signal.h>
 
 #include "../mods.h"
+#include "../diagnostics.h"
 #include "../platform.h"
 
 // ---- guest address space
@@ -125,6 +126,7 @@ void plat_thread_realtime(uint64_t period_ns) {
 // exe, and a fatal error shows a message box (plat_fatal_notice) instead of vanishing. Processes started by this one
 // (a re-exec for a fresh address layout) append to the same log.
 static char g_log_path[MAX_PATH];
+const char *plat_log_path(void) { return g_log_path; }
 
 static void log_to_file_without_console(void) {
     if (GetStdHandle(STD_ERROR_HANDLE) && GetStdHandle(STD_ERROR_HANDLE) != INVALID_HANDLE_VALUE) return;  // console / pipe
@@ -267,7 +269,7 @@ void plat_fatal_notice(void) {
         l += (size_t)snprintf(text + l, sizeof text - l, "\n\nMods are on. If this started with a new mod, move it out of "
                               "the mods folder: mods made for a later version of the game (1.3.0) can crash 1.0.0.");
     snprintf(text + l, sizeof text - l, "\n\nDetails: %s", g_log_path);
-    MessageBoxA(NULL, text, "Super Odyssey PC Recomp", MB_ICONERROR | MB_OK);
+    diagnostics_fatal_dialog(text);
 }
 
 void plat_init(void) {

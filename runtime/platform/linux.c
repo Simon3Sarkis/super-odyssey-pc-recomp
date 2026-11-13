@@ -19,6 +19,7 @@
 #include <unistd.h>
 
 #include "../mods.h"
+#include "../diagnostics.h"
 #include "../paths.h"
 #include "../platform.h"
 #include "../rt.h"
@@ -97,6 +98,7 @@ void plat_thread_realtime(uint64_t period_ns) {
 // (runtime/paths.h; rt_paths_init runs later, so the same rule is applied here). Processes started by this one (the
 // re-exec for a fresh address layout) append to the same log.
 static char g_log_path[1024];
+const char *plat_log_path(void) { return g_log_path; }
 
 static void log_to_file_without_terminal(void) {
     if (isatty(STDERR_FILENO)) return;
@@ -288,7 +290,7 @@ void plat_error_box(const char *text) {
 void plat_fatal_notice(void) {
     if (!g_log_path[0]) return;
     fflush(stderr);
-    char text[1600] = "Super Odyssey PC Recomp stopped because of an error.";
+    char text[2900] = "Super Odyssey PC Recomp stopped because of an error.";
     FILE *f = fopen(g_log_path, "rb");
     if (f) {
         static char tail[16384];
@@ -316,7 +318,12 @@ void plat_fatal_notice(void) {
     if (mods_applied())
         l += (size_t)snprintf(text + l, sizeof text - l, "\n\nMods are on. If this started with a new mod, move it out of "
                               "the mods folder: mods made for a later version of the game (1.3.0) can crash 1.0.0.");
-    snprintf(text + l, sizeof text - l, "\n\nDetails: %s", g_log_path);
+    // The crash report (runtime/diagnostics.c) is saved before the box shows. Not diagnostics_fatal_dialog here: its
+    // SDL message box with buttons goes through zenity, which can hang without a window (plat_error_box).
+    char report[1200];
+    if (diagnostics_capture_crash(report, sizeof report))
+        snprintf(text + l, sizeof text - l, "\n\nCrash report (attach it to a bug report): %s", report);
+    else snprintf(text + l, sizeof text - l, "\n\nDetails: %s", g_log_path);
     plat_error_box(text);
 }
 

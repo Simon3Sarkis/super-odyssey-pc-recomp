@@ -37,16 +37,19 @@ static bool g_log;
 static void warp_now(Cpu *c, uint64_t scene) {
     uint64_t holder = *(uint64_t *)(uintptr_t)(scene + STAGE_SCENE_HOLDER);
     if (!holder) return;
-    // (1.4.1 doesn't name ChangeStageInfo's constructor nor the world warp: no warps there, rather than a fatal error)
-    if (!loader_find_symbol(g_warps[g_next].world ? "_ZN16GameDataFunction35tryChangeNextStageWithDemoWorldWarpE20GameDataHolderWriterPKc"
-                                                  : "_ZN15ChangeStageInfoC1EPK14GameDataHolderPKcS4_biNS_15SubScenarioTypeE")) {
-        LOG("[warp] this version of the game doesn't name the functions a warp needs (1.0.0 does): warps off\n");
+    // Resolve every helper before touching the guest stack. The 1.4.1 names come
+    // from the build-ID-gated table; unknown builds still fail without dispatching.
+    uint64_t world = loader_find_symbol("_ZN16GameDataFunction35tryChangeNextStageWithDemoWorldWarpE20GameDataHolderWriterPKc");
+    uint64_t ctor = loader_find_symbol("_ZN15ChangeStageInfoC1EPK14GameDataHolderPKcS4_biNS_15SubScenarioTypeE");
+    uint64_t change = loader_find_symbol("_ZN16GameDataFunction18tryChangeNextStageE20GameDataHolderWriterPK15ChangeStageInfo");
+    if (g_warps[g_next].world ? !world : (!ctor || !change)) {
+        LOG("[warp] required helpers unavailable for this game build: warps off\n");
         g_nwarps = g_next;
         return;
     }
     const Warp g_warp = g_warps[g_next++];
-    uint64_t x[9], lr = c->x[30], sp = c->sp;
-    memcpy(x, c->x, sizeof x);
+    Cpu saved = *c;
+    uint64_t sp = c->sp;
     // below the caller's frame: the ChangeStageInfo, then both names; the calls' frames go below all of it
     uint64_t base = (sp - 0x400) & ~0xFull, info = base, entrance = base + 0x280, stage = base + 0x300;
     memset((void *)(uintptr_t)base, 0, sp - base);
@@ -57,19 +60,18 @@ static void warp_now(Cpu *c, uint64_t scene) {
         // another kingdom: what the Odyssey's takeoff does (next stage with the world warp demo), then the stage-change
         // flag (GameDataHolder+0x49), so rs::tryChangeNextStage ends the scene and HakoniwaSequence flies there
         c->x[0] = holder, c->x[1] = stage;
-        guest_call(c, guest_sym("_ZN16GameDataFunction35tryChangeNextStageWithDemoWorldWarpE20GameDataHolderWriterPKc"));
+        guest_call(c, world);
         *(uint8_t *)(uintptr_t)(holder + 0x49) = 1;
     } else {
         c->x[0] = info, c->x[1] = holder, c->x[2] = entrance, c->x[3] = stage;
         c->x[4] = 0, c->x[5] = (uint32_t)g_warp.scenario, c->x[6] = 0;  // (not a return, scenario, no sub scenario)
-        guest_call(c, guest_sym("_ZN15ChangeStageInfoC1EPK14GameDataHolderPKcS4_biNS_15SubScenarioTypeE"));
+        guest_call(c, ctor);
         c->x[0] = holder, c->x[1] = info;
-        guest_call(c, guest_sym("_ZN16GameDataFunction18tryChangeNextStageE20GameDataHolderWriterPK15ChangeStageInfo"));
+        guest_call(c, change);
     }
     LOG("[warp] frame %llu: %s (entrance \"%s\", scenario %d) -> %s\n", (unsigned long long)renderer_present_count(),
         g_warp.stage, g_warp.entrance, g_warp.scenario, (c->x[0] & 1) ? "requested" : "refused");
-    memcpy(c->x, x, sizeof x);
-    c->x[30] = lr, c->sp = sp;
+    *c = saved;
 }
 
 // ---- ODYSSEY_SAVE_COMPLETE=<frame>: from that frame, once, the playing save becomes a completed one, done the game's own
@@ -178,7 +180,22 @@ static void stage_scene_control(Cpu *c) {
         g_scene_new = false;
         g_scene_start = now;
         input_motion_settle(); // the first playable update after loading a save/stage
-        if (g_log) LOG("[warp] stage scene %llx running at frame %llu\n", (unsigned long long)c->x[0], (unsigned long long)now - 1);
+        if (g_log) {
+            uint64_t current = loader_find_symbol("_ZN16GameDataFunction19getCurrentStageNameE22GameDataHolderAccessor");
+            char name[128] = "unknown";
+            if (current) {
+                Cpu saved = *c;
+                c->x[0] = *(uint64_t *)(uintptr_t)(c->x[0] + STAGE_SCENE_HOLDER);
+                c->sp = (c->sp - 0x400) & ~0xFull;
+                guest_call(c, current);
+                uint64_t ptr = c->x[0];
+                if (ptr >= GUEST_LO && ptr < GUEST_HI - sizeof name)
+                    snprintf(name, sizeof name, "%.*s", (int)sizeof name - 1, (const char *)(uintptr_t)ptr);
+                *c = saved;
+            }
+            LOG("[warp] stage scene %llx running at frame %llu stage \"%s\"\n",
+                (unsigned long long)c->x[0], (unsigned long long)now - 1, name);
+        }
     }
     g_last_control = now;
     if (g_complete_at && now >= g_complete_at && now - g_scene_start > 60) {  // (a scene well under way)

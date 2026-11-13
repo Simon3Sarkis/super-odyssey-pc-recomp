@@ -28,6 +28,7 @@ extern "C" bool vk_imgui_backend_init(void);  // runtime/nvn/vulkan/imgui_glue.c
 extern "C" {
 #include "../hle.h"
 #include "../mods.h"
+#include "../diagnostics.h"
 #include "../settings.h"
 #include "../updater.h"
 #include "menu.h"
@@ -595,7 +596,10 @@ extern "C" double output_scale_dynamic_factor(void);
 extern "C" bool vk_prepare_requested(void);       // runtime/nvn/vulkan/device.c (the menu's Compile shaders)
 extern "C" void vk_prepare_request(bool on);
 #ifdef _WIN32
-extern "C" bool vk_dlss_enabled(void);
+extern "C" bool vk_temporal_enabled(void);
+extern "C" bool vk_fsr3_available(void);
+extern "C" bool vk_fsr4_available(void);
+extern "C" bool vk_xess_available(void);
 #endif
 
 static void tab_display(void) {
@@ -666,9 +670,9 @@ static void tab_graphics(void) {
         if (g_settings.res_mode == RES_DYNAMIC)
             snprintf(d + n, sizeof d - n, " Dynamic: %.0f%% of the display right now.", output_scale_dynamic_factor() * 100);
 #ifdef _WIN32
-        if (vk_dlss_enabled()) {
-            snprintf(d, sizeof d, "Match display lets DLSS choose its usual input size. A fixed resolution overrides that "
-                     "size. At or above the display resolution, DLSS upscaling is bypassed. DLAA applies at equal sizes.\n\n"
+        if (vk_temporal_enabled()) {
+            snprintf(d, sizeof d, "Match display lets the temporal upscaler choose its usual input size. A fixed resolution overrides that "
+                     "size. At or above the display resolution, upscaling is bypassed. Native AA/DLAA applies at equal sizes.\n\n"
                      "Rendering at %.0f x %.0f.", 1600.0 * sx, 900.0 * sy);
         }
 #endif
@@ -688,7 +692,7 @@ static void tab_graphics(void) {
         char udm[512];
         if (g_settings.res_mode == RES_MATCH
 #ifdef _WIN32
-            && !vk_dlss_enabled()
+            && !vk_temporal_enabled()
 #endif
         ) {  // (renders at the window's size: nothing to scale up)
             snprintf(udm, sizeof udm, "%s\n\nNot used at Match display: the game already renders at your display's resolution.", ud);
@@ -700,7 +704,7 @@ static void tab_graphics(void) {
 #else
         constexpr int default_upscaler = 0;
 #endif
-        if (opt_choice("Upscaler", &ui, ups, 2, default_upscaler, ud)) g_settings.upscaler = ui ? UPSCALE_SHARP : UPSCALE_BILINEAR;
+        if (opt_choice("Spatial upscaler", &ui, ups, 2, default_upscaler, ud)) g_settings.upscaler = ui ? UPSCALE_SHARP : UPSCALE_BILINEAR;
     }
     opt_section("Anti-aliasing");
     static const char *aa[] = {"Off", "SMAA"};
@@ -708,8 +712,26 @@ static void tab_graphics(void) {
                "Smooths jagged edges of the game image before it is scaled to the window. SMAA: finds the edges and "
                "blends only along them, so textures stay sharp. Most useful at a lower internal resolution.");
 #ifdef _WIN32
-    opt_section("NVIDIA DLSS");
-    {
+    opt_section("Temporal upscaling");
+    static const char *backends[] = {"NVIDIA DLSS", "AMD FSR 3.1", "AMD FSR 4 (Beta)", "Intel XeSS (Beta)"};
+    opt_choice("Temporal upscaler", &g_settings.temporal_backend, backends, TEMPORAL_BACKEND_COUNT, TEMPORAL_DLSS,
+               "Selects the temporal anti-aliasing/upscaling technique. Each keeps its own mode and sharpening settings. Changes during play.");
+    int backend = g_settings.temporal_backend;
+    bool fsr = backend == TEMPORAL_FSR3 || backend == TEMPORAL_FSR4;
+    if (backend != TEMPORAL_DLSS) {
+        static const char *modes[] = {"Off", "Native AA", "Quality", "Balanced", "Performance"};
+        const char *help = backend == TEMPORAL_XESS ?
+            "Experimental Intel XeSS-SR. Native AA, Quality (1.7x), Balanced (2x) and Performance (2.3x). Requires a compatible Vulkan driver and Intel's runtime. Changes during play." :
+            "AMD temporal reconstruction. Native AA uses display resolution; other modes render at lower input resolutions. Changes during play.";
+        if (backend == TEMPORAL_FSR4 && !vk_fsr4_available()) help =
+            "FSR 4 ML is unavailable on this GPU/runtime. FSR 3.1 is used when supported; otherwise the game uses regular rendering. The status below shows the active path.";
+        opt_choice(backend == TEMPORAL_XESS ? "XeSS mode" : backend == TEMPORAL_FSR4 ? "FSR 4 mode" : "FSR 3.1 mode",
+                   settings_temporal_mode(), modes, DLSS_MODE_COUNT, DLSS_QUALITY, help);
+        const char *status = *settings_temporal_mode() == DLSS_OFF ? "Off" : backend == TEMPORAL_XESS ?
+            (vk_xess_available() ? "XeSS" : "Regular rendering") : backend == TEMPORAL_FSR4 && vk_fsr4_available() ? "FSR 4 ML" :
+            vk_fsr3_available() ? (backend == TEMPORAL_FSR4 ? "FSR 3.1 fallback" : "FSR 3.1") : "Regular rendering";
+        opt_disable_next(); opt_action("Upscaler status", status, "The available rendering path. Unsupported experimental techniques do not run on incompatible hardware.");
+    } else {
         static const char *modes[] = {"Off", "DLAA", "Quality", "Balanced", "Performance"};
         static const char *presets[] = {"Default", "K", "L", "M"};
         opt_choice("DLSS mode", &g_settings.dlss_mode, modes, DLSS_MODE_COUNT, DLSS_OFF,
@@ -718,28 +740,20 @@ static void tab_graphics(void) {
         opt_choice("DLSS preset", &g_settings.dlss_preset, presets, DLSS_PRESET_COUNT, DLSS_PRESET_DEFAULT,
                    "Model hint for NVIDIA DLSS. Default uses K for DLAA/Quality/Balanced and M for Performance. Changes during play.");
     }
-    // One visible control, with independent amounts for each reconstruction method.
-    if (g_settings.dlss_mode != DLSS_OFF || g_settings.upscaler == UPSCALE_FSR1) {
-        bool dlss = g_settings.dlss_mode != DLSS_OFF;
-        if (dlss) {
-            float reconstruction = (float)g_settings.dlss_rcas_sharpness;
-            if (opt_slider("DLSS sharpness (RCAS)", &reconstruction, 0, 100, 10, 20, "%g%%",
-                           "RCAS after DLSS/DLAA, the sharpening technique used by the Astral Chain reference. "
-                           "Independent of optional CAS below. 0% bypasses it. Changes at once."))
-                g_settings.dlss_rcas_sharpness = (int)reconstruction;
-        }
-        if (dlss) opt_toggle("CAS sharpening", &g_settings.dlss_cas, false,
-                             "Optional FidelityFX CAS after DLSS or DLAA. Turning it off preserves the unsharpened output. Changes at once.");
-        if (dlss && !g_settings.dlss_cas) opt_disable_next();
-        float amount = dlss ? g_settings.dlss_sharpness : g_settings.fsr1_sharpness;
-        if (opt_slider(dlss ? "CAS sharpness" : "Sharpness", &amount, 0, 100, 10, dlss ? 20 : 90, "%g%%",
-                       dlss ? "Sharpens DLSS or DLAA using FidelityFX CAS. 0% turns sharpening off. Changes at once. "
-                              "The amount is saved separately from other upscalers. High values can emphasize jagged edges."
-                            : "Adjusts FSR 1's RCAS sharpening. 0% turns sharpening off. Changes at once. "
-                              "The amount is saved separately from DLSS.")) {
-            if (dlss) g_settings.dlss_sharpness = (int)amount;
-            else g_settings.fsr1_sharpness = (int)amount;
-        }
+    if (*settings_temporal_mode() != DLSS_OFF) {
+        float strength = (float)*settings_temporal_sharpness();
+        if (opt_slider(fsr ? "FSR sharpness" : backend == TEMPORAL_XESS ? "XeSS sharpness (RCAS)" : "DLSS sharpness (RCAS)",
+                       &strength, 0, 100, 10, 20, "%g%%", "Reconstruction sharpening. 0% bypasses it. Saved independently for each technique; changes at once."))
+            *settings_temporal_sharpness() = (int)strength;
+        opt_toggle("CAS sharpening", settings_temporal_cas(), false, "Optional CAS after reconstruction, independent of the sharpening above.");
+        if (!*settings_temporal_cas()) opt_disable_next();
+        float amount = (float)*settings_temporal_cas_sharpness();
+        if (opt_slider("CAS sharpness", &amount, 0, 100, 10, 20, "%g%%", "Optional CAS strength, saved separately for each technique. 0% bypasses the pass."))
+            *settings_temporal_cas_sharpness() = (int)amount;
+    } else if (g_settings.upscaler == UPSCALE_FSR1) {
+        float amount = (float)g_settings.fsr1_sharpness;
+        if (opt_slider("Sharpness", &amount, 0, 100, 10, 90, "%g%%", "FSR 1 RCAS sharpening. 0% bypasses the pass."))
+            g_settings.fsr1_sharpness = (int)amount;
     }
 #endif
 #ifndef __APPLE__  // (Vulkan: nvn/vulkan/textures.c vk_sampler, "Banding")
@@ -778,7 +792,7 @@ static void tab_performance(void) {
     }
     if (g_settings.frame_rate != FPS_60) opt_disable_next();
 #ifdef _WIN32
-    if (vk_dlss_enabled()) opt_disable_next();
+    if (vk_temporal_enabled()) opt_disable_next();
 #endif
     opt_toggle("120 FPS interpolation", &g_settings.frame_interp, false,
                "Available with Frame rate set to 60 FPS and DLSS off. Adds an image between game frames, targeting 120 FPS "
@@ -953,9 +967,30 @@ static void tab_updates(float scale) {
 }
 
 static void tab_quit(float scale) {
+    static char report[1200];
+    static char previous[1200];
+    static bool checked_previous;
+    static const char *result = "Create file";
+    auto copy_result = []() { int s = diagnostics_copy_status(); return s > 0 ? "Path copied" : s == 0 ? "Copy pending" : "Saved"; };
+    if (!strcmp(result, "Copy pending")) result = copy_result();
     opt_begin("##quit", scale);
     opt_section("Quit");
     if (opt_action("Quit to Desktop", "", "Closes " RT_APP_NAME " after confirmation.")) g_quit_prompt = true;
+    opt_section("Diagnostics");
+    if (opt_action("Copy crash report", result,
+                   "Creates one text file with the saved settings, log, hardware/driver and fault details. Copies its path to paste into the attachment file picker. Includes local paths; nothing is uploaded.")) {
+        settings_save();
+        if (diagnostics_write_report(report, sizeof report))
+            result = diagnostics_copy_path(report) ? copy_result() : "Saved";
+        else result = "Could not save";
+    }
+    if (report[0]) { opt_disable_next(); opt_action("Saved report", "", report); }
+    if (!checked_previous) { diagnostics_last_crash(previous, sizeof previous); checked_previous = true; }
+    if (previous[0] &&
+        opt_action("Copy last crash report", "", "Copies the saved crash report's path, including after restarting the game.")) {
+        if (diagnostics_last_crash(report, sizeof report)) result = diagnostics_copy_path(report) ? copy_result() : "Saved";
+        else { previous[0] = 0; result = "No saved crash"; }
+    }
     opt_end();
 }
 

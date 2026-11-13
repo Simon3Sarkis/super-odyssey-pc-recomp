@@ -17,6 +17,7 @@ static const char *settings_file(void) {
     const char *e = getenv("ODYSSEY_SETTINGS");
     return e && *e ? e : "powermoon.ini";
 }
+const char *settings_current_file(void) { return settings_file(); }
 
 Settings g_settings = {
     .window_mode = WINDOWED,
@@ -31,6 +32,11 @@ Settings g_settings = {
 #endif
     .dlss_sharpness = 20,
     .dlss_rcas_sharpness = 20,
+    .fsr3_mode = DLSS_QUALITY,
+    .fsr3_sharpness = 20,
+    .fsr3_cas_sharpness = 20,
+    .fsr4_mode = DLSS_QUALITY, .fsr4_sharpness = 20, .fsr4_cas_sharpness = 20,
+    .xess_mode = DLSS_QUALITY, .xess_sharpness = 20, .xess_cas_sharpness = 20,
     .fsr1_sharpness = 90,
     .deband = true,
     .rumble = true,
@@ -80,6 +86,8 @@ void settings_warmup_budget(unsigned *ms, unsigned *mb) {
 
 static const char *const dlss_modes[DLSS_MODE_COUNT] = {"off", "dlaa", "quality", "balanced", "performance"};
 static const char *const dlss_presets[DLSS_PRESET_COUNT] = {"default", "k", "l", "m"};
+static const char *const temporal_backends[TEMPORAL_BACKEND_COUNT] = {"dlss", "fsr3", "fsr4", "xess"};
+static const char *const fsr3_modes[DLSS_MODE_COUNT] = {"off", "native", "quality", "balanced", "performance"};
 static const char *const window_modes[WINDOW_MODE_COUNT] = {"windowed", "borderless", "exclusive"};
 static const char *const display_modes[DISPLAY_MODE_COUNT] = {"auto", "1080p", "1440p", "2160p"};
 
@@ -199,6 +207,26 @@ void settings_load(void) {
         else if (!strcmp(key, "antialias")) g_settings.antialias = !strcmp(val, "off") ? AA_OFF : AA_SMAA;
         else if (!strcmp(key, "dlss_mode")) g_settings.dlss_mode = named_option(val, dlss_modes, DLSS_MODE_COUNT);
         else if (!strcmp(key, "dlss_preset")) g_settings.dlss_preset = named_option(val, dlss_presets, DLSS_PRESET_COUNT);
+        else if (!strcmp(key, "temporal_backend")) g_settings.temporal_backend = named_option(val, temporal_backends, TEMPORAL_BACKEND_COUNT);
+        else if (!strcmp(key, "fsr3_mode")) g_settings.fsr3_mode = named_option(val, fsr3_modes, DLSS_MODE_COUNT);
+        else if (!strcmp(key, "fsr4_mode")) g_settings.fsr4_mode = named_option(val, fsr3_modes, DLSS_MODE_COUNT);
+        else if (!strcmp(key, "xess_mode")) g_settings.xess_mode = named_option(val, fsr3_modes, DLSS_MODE_COUNT);
+        else if (!strcmp(key, "fsr4_cas")) g_settings.fsr4_cas = atoi(val) != 0;
+        else if (!strcmp(key, "xess_cas")) g_settings.xess_cas = atoi(val) != 0;
+        else if (!strcmp(key, "fsr4_sharpness") || !strcmp(key, "fsr4_cas_sharpness") ||
+                 !strcmp(key, "xess_sharpness") || !strcmp(key, "xess_cas_sharpness")) {
+            int n = atoi(val); n = n < 0 ? 0 : n > 100 ? 100 : n;
+            if (!strcmp(key, "fsr4_sharpness")) g_settings.fsr4_sharpness = n;
+            else if (!strcmp(key, "fsr4_cas_sharpness")) g_settings.fsr4_cas_sharpness = n;
+            else if (!strcmp(key, "xess_sharpness")) g_settings.xess_sharpness = n;
+            else g_settings.xess_cas_sharpness = n;
+        }
+        else if (!strcmp(key, "fsr3_cas")) g_settings.fsr3_cas = atoi(val) != 0;
+        else if (!strcmp(key, "fsr3_sharpness") || !strcmp(key, "fsr3_cas_sharpness")) {
+            int n = atoi(val); n = n < 0 ? 0 : n > 100 ? 100 : n;
+            if (!strcmp(key, "fsr3_sharpness")) g_settings.fsr3_sharpness = n;
+            else g_settings.fsr3_cas_sharpness = n;
+        }
         else if (!strcmp(key, "dlss_cas")) g_settings.dlss_cas = atoi(val) != 0;
         else if (!strcmp(key, "dlss_sharpness")) {
             int n = atoi(val);
@@ -269,6 +297,15 @@ void settings_save(void) {
     fprintf(f, "antialias = %s\n", g_settings.antialias == AA_SMAA ? "smaa" : "off");
     fprintf(f, "dlss_mode = %s\n", dlss_modes[g_settings.dlss_mode]);
     fprintf(f, "dlss_preset = %s\n", dlss_presets[g_settings.dlss_preset]);
+    fprintf(f, "temporal_backend = %s\n", temporal_backends[g_settings.temporal_backend]);
+    fprintf(f, "fsr3_mode = %s\n", fsr3_modes[g_settings.fsr3_mode]);
+    fprintf(f, "fsr3_sharpness = %d\n", g_settings.fsr3_sharpness);
+    fprintf(f, "fsr3_cas = %d\n", g_settings.fsr3_cas);
+    fprintf(f, "fsr3_cas_sharpness = %d\n", g_settings.fsr3_cas_sharpness);
+    fprintf(f, "fsr4_mode = %s\nfsr4_sharpness = %d\nfsr4_cas = %d\nfsr4_cas_sharpness = %d\n",
+        fsr3_modes[g_settings.fsr4_mode], g_settings.fsr4_sharpness, g_settings.fsr4_cas, g_settings.fsr4_cas_sharpness);
+    fprintf(f, "xess_mode = %s\nxess_sharpness = %d\nxess_cas = %d\nxess_cas_sharpness = %d\n",
+        fsr3_modes[g_settings.xess_mode], g_settings.xess_sharpness, g_settings.xess_cas, g_settings.xess_cas_sharpness);
     fprintf(f, "dlss_cas = %d\n", g_settings.dlss_cas);
     fprintf(f, "dlss_sharpness = %d\n", g_settings.dlss_sharpness);
     fprintf(f, "dlss_rcas_sharpness = %d\n", g_settings.dlss_rcas_sharpness);

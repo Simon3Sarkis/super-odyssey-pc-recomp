@@ -6,7 +6,7 @@
 //     its 0x4000 flag); odyssey_120.c needs another way for its extra draws
 //   - nn::g3d::SkeletonObj::CalculateWorldMtx: inlined into its callers in 1.4.1 (no candidate near its 4 callers)
 //   - sead::system::HaltWithDetail / PrintStringImpl: no candidate (probably dropped with the release build's asserts)
-//   - the stage warp test tool's and the heap diagnostics' names (runtime/hle/odyssey_warp.c, diag.c): not ported yet
+//   - the completed-save builder's and heap diagnostics' names: not ported yet
 #pragma once
 #include <stdint.h>
 
@@ -36,6 +36,11 @@ static const OdysseyV141Sym ODYSSEY_V141_SYMS[] = {
     // the stage (runtime/hle/odyssey_warp.c)
     {"_ZN10StageScene4initERKN2al13SceneInitInfoE", 0x700046e7a0ull},                  // vtable slot 3
     {"_ZN10StageScene7controlEv", 0x7000472af0ull},                                    // vtable slot 7
+    // Warp test tool: verified constructor fields/call sites and neighboring wrappers in both builds.
+    {"_ZN15ChangeStageInfoC1EPK14GameDataHolderPKcS4_biNS_15SubScenarioTypeE", 0x700021c040ull},
+    {"_ZN16GameDataFunction18tryChangeNextStageE20GameDataHolderWriterPK15ChangeStageInfo", 0x70004d2c50ull},
+    {"_ZN16GameDataFunction35tryChangeNextStageWithDemoWorldWarpE20GameDataHolderWriterPKc", 0x70004d2d30ull},
+    {"_ZN16GameDataFunction19getCurrentStageNameE22GameDataHolderAccessor", 0x70004d2df0ull},
 };
 
 // Addresses the runtime uses directly for 1.0.0, and their 1.4.1 counterparts

@@ -222,6 +222,17 @@ NVN(nvnMemoryPoolInitialize) {
 // (frame interpolation: a replay on its own thread must not run while a host object it may use goes - interp.c)
 NVN(nvnMemoryPoolFinalize) { rq_drain(); interp_free_begin(); free(HOST(NvnPool, A(0))); SET_HOST(A(0), 0); interp_free_end(); }
 NVN(nvnMemoryPoolSetDebugLabel) { (void)c; }
+// al::getF32FromLinearTextureF16, immediately after its indirect MemoryPoolMap
+// call. Both builds keep nc/comp/y/x/offset/row-elements in x19..x24.
+// Match the loaded main as well as LR: another game's caller must never cause
+// its registers to be interpreted as Odyssey's texture coordinates.
+static bool fog_f16_map_reader(uint64_t lr) {
+    if (lr == 0x70007ac640ull) return loader_main_is_v141();
+    if (lr != 0x7000a2b86cull) return false;
+    static const uint8_t v100[8] = {0x3c, 0xa1, 0x2d, 0xfa, 0xaf, 0x9c, 0x82, 0xda};
+    const Module *main = loader_module("main");
+    return main && !memcmp(main->build_id, v100, sizeof v100);
+}
 NVN(nvnMemoryPoolMap) {
     NvnPool *p = HOST(NvnPool, A(0));
     // The lifted game's direct calls bypass dispatch overrides. Observe the NVN
@@ -232,7 +243,7 @@ NVN(nvnMemoryPoolMap) {
     static int feedback = -1;
     // On by default (the reactive Cap Kingdom fog needs it); ODYSSEY_FOG_CPU_READBACK=0 switches it off.
     if (feedback < 0) { const char *e = getenv("ODYSSEY_FOG_CPU_READBACK"); feedback = !e || atoi(e) != 0; }
-    if ((trace || feedback) && c->x[30] == 0x70007ac640ull) {
+    if ((trace || feedback) && fog_f16_map_reader(c->x[30])) {
         uint32_t nc = c->x[19], comp = c->x[20], y = c->x[21], x = c->x[22];
         uint64_t off = (uint32_t)c->x[23];
         // Match the reader's 32-bit madd/mul before its signed halfword indexing.

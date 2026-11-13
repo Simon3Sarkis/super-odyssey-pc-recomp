@@ -18,10 +18,17 @@ fog/water/effect differences for review. The full 17-kingdom candidate compariso
 and interaction coverage are still pending; this is not a full-game graphics
 sign-off. Simon confirmed the private warp preview works perfectly.
 
-Next manual test: the crash-report preview. Export, error-popup copy and normal
+Simon confirmed the crash-report export by sharing a complete diagnostic file.
+Export, error-popup copy and normal
 quit were exercised on Windows; native fixtures also verified early failures,
 bounded logs, safe file failures and recovery after process restart/log replacement.
 See CRASH-REPORTS.md. This does not fix the separate poison or Iris Xe crashes.
+
+Next manual test: reactive fog on 1.0.0. The named reader's NVN caller is now
+build-ID gated alongside 1.4.1; both register layouts were checked against the
+owner's extracted files. Private stock-60-FPS runs passed on both versions.
+See FOG-READBACK.md; await Simon's Mario/Cappy interaction check before moving
+to poison.
 
 A separate 120 FPS / 1280x720 hidden-window save-load test crashed before its
 warp (TextureDataEx::reset, access 0x20). The 60 FPS tour passed. Its cause and

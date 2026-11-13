@@ -1,6 +1,8 @@
+# Super Odyssey PC Recomp
+
 <p align="center"><img src="docs/banner.svg" alt="Super Odyssey PC Recomp" width="100%"></p>
 
-<p align="center"><b>A native Windows PC port of Super Mario Odyssey, made by static recompilation - from your own copy of the game.</b></p>
+<p align="center"><b>A native PC port of Super Mario Odyssey for Windows and Linux, made by static recompilation - from your own copy of the game.</b></p>
 
 > [!IMPORTANT]
 > **You must bring your own game.** This project contains **no game files, no game code, no assets and no keys** -

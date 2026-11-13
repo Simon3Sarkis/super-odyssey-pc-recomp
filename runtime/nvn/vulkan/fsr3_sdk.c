@@ -2,6 +2,7 @@
 #include "fsr3_sdk.h"
 #ifdef _WIN32
 #include <math.h>
+#include <stdio.h>
 #include <stdatomic.h>
 #include <string.h>
 #include <wchar.h>
@@ -16,12 +17,14 @@ static struct {
     PfnFfxQuery query;
     PfnFfxDispatch dispatch;
     ffxContext context;
-    uint64_t version;
+    uint64_t version[2];
+    bool ml;
     uint32_t w, h, ow, oh;
 } fsr;
-static atomic_bool ready;
+static atomic_bool ready[2];
 
-bool vk_fsr3_available(void) { return atomic_load_explicit(&ready, memory_order_relaxed); }
+bool vk_fsr3_available(void) { return atomic_load_explicit(&ready[0], memory_order_relaxed); }
+bool vk_fsr4_available(void) { return atomic_load_explicit(&ready[1], memory_order_relaxed); }
 
 void vk_fsr3_init(void) {
     wchar_t path[2048];
@@ -50,11 +53,15 @@ void vk_fsr3_init(void) {
     if (r) { LOG("[fsr3] provider query failed: %u\n", r); return; }
     if (count > 16) count = 16;
     for (uint64_t i = 0; i < count; i++) {
-        LOG("[fsr3] provider %llu: %s\n", (unsigned long long)ids[i], names[i] ? names[i] : "unknown");
-        if (names[i] && strstr(names[i], "3.1")) fsr.version = ids[i];
+        LOG("[fsr-sdk] provider %llu: %s\n", (unsigned long long)ids[i], names[i] ? names[i] : "unknown");
+        unsigned major = 0, minor = 0;
+        if (names[i]) sscanf(names[i], "%u.%u", &major, &minor);
+        if (major == 3 && minor == 1 && !fsr.version[0]) fsr.version[0] = ids[i];
+        if (major == 4 && !fsr.version[1]) fsr.version[1] = ids[i];
     }
-    if (!fsr.version) { LOG("[fsr3] no FSR 3.1 Vulkan provider supports this GPU\n"); return; }
-    atomic_store_explicit(&ready, true, memory_order_relaxed);
+    atomic_store_explicit(&ready[0], fsr.version[0] != 0, memory_order_relaxed);
+    atomic_store_explicit(&ready[1], fsr.version[1] != 0, memory_order_relaxed);
+    if (!fsr.version[1]) LOG("[fsr4] no ML provider supports this GPU; FSR 3.1 fallback is %s\n", fsr.version[0] ? "available" : "unavailable");
 }
 
 void vk_fsr3_release(void) {
@@ -98,18 +105,30 @@ static void input_layouts(VkCommandBuffer cb, const Fsr3Frame *f, bool reading) 
 }
 
 bool vk_fsr3_dispatch(VkCommandBuffer cb, const Fsr3Frame *f) {
-    if (!vk_fsr3_available()) return false;
+    bool ml = f->ml && vk_fsr4_available();
+    if (!ml && !vk_fsr3_available()) return false;
     if (!fsr.context) {
         struct ffxCreateBackendVKDesc backend = {.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_VK,
             .deviceContext = {g_vk.dev, g_vk.phys, vkGetDeviceProcAddr}};
-        struct ffxOverrideVersion version = {.header = {FFX_API_DESC_TYPE_OVERRIDE_VERSION, &backend.header}, .versionId = fsr.version};
-        struct ffxCreateContextDescUpscale desc = {.header = {FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE, &version.header},
+        struct ffxOverrideVersion version = {.header = {FFX_API_DESC_TYPE_OVERRIDE_VERSION, &backend.header}, .versionId = fsr.version[ml]};
+        struct ffxCreateContextDescUpscaleVersion api = {.header = {FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE_VERSION, &version.header}, .version = FFX_UPSCALER_VERSION};
+        struct ffxCreateContextDescUpscale desc = {.header = {FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE, ml ? &api.header : &version.header},
             .flags = FFX_UPSCALE_ENABLE_AUTO_EXPOSURE | FFX_UPSCALE_ENABLE_NON_LINEAR_COLORSPACE,
             .maxRenderSize = {f->w, f->h}, .maxUpscaleSize = {f->ow, f->oh}};
         ffxReturnCode_t r = fsr.create(&fsr.context, &desc.header, NULL);
-        if (r) { LOG("[fsr3] context creation failed: %u\n", r); atomic_store(&ready, false); return false; }
+        if (r) {
+            LOG("[fsr%d] context creation failed: %u\n", ml ? 4 : 3, r);
+            atomic_store(&ready[ml], false);
+            vk_fsr3_release();
+            if (ml && vk_fsr3_available()) return vk_fsr3_dispatch(cb, f);
+            return false;
+        }
+        fsr.ml = ml;
         fsr.w = f->w; fsr.h = f->h; fsr.ow = f->ow; fsr.oh = f->oh;
-        LOG("[fsr3] context created: %ux%u -> %ux%u\n", f->w, f->h, f->ow, f->oh);
+        struct ffxQueryGetProviderVersion provider = {.header.type = FFX_API_QUERY_DESC_TYPE_GET_PROVIDER_VERSION};
+        fsr.query(&fsr.context, &provider.header);
+        LOG("[fsr%d] context created: %ux%u -> %ux%u, provider %s%s\n", ml ? 4 : 3, f->w, f->h, f->ow, f->oh,
+            provider.versionName ? provider.versionName : "unknown", f->ml && !ml ? " (FSR 4 unavailable: analytical fallback)" : "");
     }
     if (fsr.w != f->w || fsr.h != f->h || fsr.ow != f->ow || fsr.oh != f->oh) return false;
     struct ffxDispatchDescUpscale desc = {.header.type = FFX_API_DISPATCH_DESC_TYPE_UPSCALE, .commandList = cb,
@@ -126,7 +145,7 @@ bool vk_fsr3_dispatch(VkCommandBuffer cb, const Fsr3Frame *f) {
     input_layouts(cb, f, true);
     ffxReturnCode_t r = fsr.dispatch(&fsr.context, &desc.header);
     input_layouts(cb, f, false);
-    if (r) { LOG("[fsr3] dispatch failed: %u\n", r); atomic_store(&ready, false); return false; }
+    if (r) { LOG("[fsr%d] dispatch failed: %u\n", fsr.ml ? 4 : 3, r); atomic_store(&ready[fsr.ml], false); return false; }
     return true;
 }
 #endif

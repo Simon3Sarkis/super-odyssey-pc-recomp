@@ -597,6 +597,8 @@ extern "C" void vk_prepare_request(bool on);
 #ifdef _WIN32
 extern "C" bool vk_temporal_enabled(void);
 extern "C" bool vk_fsr3_available(void);
+extern "C" bool vk_fsr4_available(void);
+extern "C" bool vk_xess_available(void);
 #endif
 
 static void tab_display(void) {
@@ -710,60 +712,47 @@ static void tab_graphics(void) {
                "blends only along them, so textures stay sharp. Most useful at a lower internal resolution.");
 #ifdef _WIN32
     opt_section("Temporal upscaling");
-    static const char *backends[] = {"NVIDIA DLSS", "AMD FSR 3.1"};
+    static const char *backends[] = {"NVIDIA DLSS", "AMD FSR 3.1", "AMD FSR 4 (Beta)", "Intel XeSS (Beta)"};
     opt_choice("Temporal upscaler", &g_settings.temporal_backend, backends, TEMPORAL_BACKEND_COUNT, TEMPORAL_DLSS,
                "Selects the temporal anti-aliasing/upscaling technique. Each keeps its own mode and sharpening settings. Changes during play.");
-    bool fsr3 = g_settings.temporal_backend == TEMPORAL_FSR3;
-    {
+    int backend = g_settings.temporal_backend;
+    bool fsr = backend == TEMPORAL_FSR3 || backend == TEMPORAL_FSR4;
+    if (backend != TEMPORAL_DLSS) {
+        static const char *modes[] = {"Off", "Native AA", "Quality", "Balanced", "Performance"};
+        const char *help = backend == TEMPORAL_XESS ?
+            "Experimental Intel XeSS-SR. Native AA, Quality (1.7x), Balanced (2x) and Performance (2.3x). Requires a compatible Vulkan driver and Intel's runtime. Changes during play." :
+            "AMD temporal reconstruction. Native AA uses display resolution; other modes render at lower input resolutions. Changes during play.";
+        if (backend == TEMPORAL_FSR4 && !vk_fsr4_available()) help =
+            "FSR 4 ML is unavailable on this GPU/runtime. FSR 3.1 is used when supported; otherwise the game uses regular rendering. The status below shows the active path.";
+        opt_choice(backend == TEMPORAL_XESS ? "XeSS mode" : backend == TEMPORAL_FSR4 ? "FSR 4 mode" : "FSR 3.1 mode",
+                   settings_temporal_mode(), modes, DLSS_MODE_COUNT, DLSS_QUALITY, help);
+        const char *status = *settings_temporal_mode() == DLSS_OFF ? "Off" : backend == TEMPORAL_XESS ?
+            (vk_xess_available() ? "XeSS" : "Regular rendering") : backend == TEMPORAL_FSR4 && vk_fsr4_available() ? "FSR 4 ML" :
+            vk_fsr3_available() ? (backend == TEMPORAL_FSR4 ? "FSR 3.1 fallback" : "FSR 3.1") : "Regular rendering";
+        opt_disable_next(); opt_action("Upscaler status", status, "The available rendering path. Unsupported experimental techniques do not run on incompatible hardware.");
+    } else {
         static const char *modes[] = {"Off", "DLAA", "Quality", "Balanced", "Performance"};
         static const char *presets[] = {"Default", "K", "L", "M"};
-        if (fsr3) {
-            static const char *fsr_modes[] = {"Off", "Native AA", "Quality", "Balanced", "Performance"};
-            opt_choice("FSR 3.1 mode", &g_settings.fsr3_mode, fsr_modes, DLSS_MODE_COUNT, DLSS_QUALITY,
-                       vk_fsr3_available() ? "AMD FSR 3.1 temporal reconstruction. Native AA uses display resolution; other modes use lower input resolutions. Changes during play."
-                                          : "FSR 3.1 is unavailable. The optional signed AMD Vulkan loader and upscaler DLLs must be beside the executable. Regular rendering is used instead.");
-        } else {
         opt_choice("DLSS mode", &g_settings.dlss_mode, modes, DLSS_MODE_COUNT, DLSS_OFF,
                    "DLAA anti-aliases at display resolution. Quality, Balanced and Performance render at progressively "
                    "lower resolutions. Changes apply during play; history resets while the new mode is prepared.");
         opt_choice("DLSS preset", &g_settings.dlss_preset, presets, DLSS_PRESET_COUNT, DLSS_PRESET_DEFAULT,
                    "Model hint for NVIDIA DLSS. Default uses K for DLAA/Quality/Balanced and M for Performance. Changes during play.");
-        }
     }
-    // One visible control, with independent amounts for each reconstruction method.
-    int mode = fsr3 ? g_settings.fsr3_mode : g_settings.dlss_mode;
-    if (mode != DLSS_OFF || g_settings.upscaler == UPSCALE_FSR1) {
-        bool dlss = !fsr3 && mode != DLSS_OFF;
-        bool fsr = fsr3 && mode != DLSS_OFF;
-        if (fsr) {
-            float strength = (float)g_settings.fsr3_sharpness;
-            if (opt_slider("FSR sharpness", &strength, 0, 100, 10, 20, "%g%%",
-                           "FSR 3.1's built-in RCAS sharpening. 0% bypasses it. Changes at once; saved separately from DLSS."))
-                g_settings.fsr3_sharpness = (int)strength;
-        }
-        if (dlss) {
-            float reconstruction = (float)g_settings.dlss_rcas_sharpness;
-            if (opt_slider("DLSS sharpness (RCAS)", &reconstruction, 0, 100, 10, 20, "%g%%",
-                           "RCAS after DLSS/DLAA, the sharpening technique used by the Astral Chain reference. "
-                           "Independent of optional CAS below. 0% bypasses it. Changes at once."))
-                g_settings.dlss_rcas_sharpness = (int)reconstruction;
-        }
-        if (dlss) opt_toggle("CAS sharpening", &g_settings.dlss_cas, false,
-                             "Optional FidelityFX CAS after DLSS or DLAA. Turning it off preserves the unsharpened output. Changes at once.");
-        if (fsr) opt_toggle("CAS sharpening", &g_settings.fsr3_cas, false,
-                            "Optional CAS after FSR 3.1. Changes at once; independent of built-in FSR sharpening.");
-        if (dlss && !g_settings.dlss_cas) opt_disable_next();
-        if (fsr && !g_settings.fsr3_cas) opt_disable_next();
-        float amount = fsr ? g_settings.fsr3_cas_sharpness : dlss ? g_settings.dlss_sharpness : g_settings.fsr1_sharpness;
-        if (opt_slider(dlss || fsr ? "CAS sharpness" : "Sharpness", &amount, 0, 100, 10, dlss || fsr ? 20 : 90, "%g%%",
-                       dlss || fsr ? "Optional CAS after temporal reconstruction. 0% turns sharpening off. Changes at once. "
-                              "The amount is saved separately from other upscalers. High values can emphasize jagged edges."
-                            : "Adjusts FSR 1's RCAS sharpening. 0% turns sharpening off. Changes at once. "
-                              "The amount is saved separately from DLSS.")) {
-            if (dlss) g_settings.dlss_sharpness = (int)amount;
-            else if (fsr) g_settings.fsr3_cas_sharpness = (int)amount;
-            else g_settings.fsr1_sharpness = (int)amount;
-        }
+    if (*settings_temporal_mode() != DLSS_OFF) {
+        float strength = (float)*settings_temporal_sharpness();
+        if (opt_slider(fsr ? "FSR sharpness" : backend == TEMPORAL_XESS ? "XeSS sharpness (RCAS)" : "DLSS sharpness (RCAS)",
+                       &strength, 0, 100, 10, 20, "%g%%", "Reconstruction sharpening. 0% bypasses it. Saved independently for each technique; changes at once."))
+            *settings_temporal_sharpness() = (int)strength;
+        opt_toggle("CAS sharpening", settings_temporal_cas(), false, "Optional CAS after reconstruction, independent of the sharpening above.");
+        if (!*settings_temporal_cas()) opt_disable_next();
+        float amount = (float)*settings_temporal_cas_sharpness();
+        if (opt_slider("CAS sharpness", &amount, 0, 100, 10, 20, "%g%%", "Optional CAS strength, saved separately for each technique. 0% bypasses the pass."))
+            *settings_temporal_cas_sharpness() = (int)amount;
+    } else if (g_settings.upscaler == UPSCALE_FSR1) {
+        float amount = (float)g_settings.fsr1_sharpness;
+        if (opt_slider("Sharpness", &amount, 0, 100, 10, 90, "%g%%", "FSR 1 RCAS sharpening. 0% bypasses the pass."))
+            g_settings.fsr1_sharpness = (int)amount;
     }
 #endif
 #ifndef __APPLE__  // (Vulkan: nvn/vulkan/textures.c vk_sampler, "Banding")

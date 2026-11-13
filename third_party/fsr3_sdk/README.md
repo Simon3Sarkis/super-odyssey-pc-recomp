@@ -16,6 +16,8 @@ powershell -ExecutionPolicy Bypass -File tools/fetch_fsr3_runtime.ps1 -Destinati
 ```
 
 The script pins the release revision and DLL hashes, verifies AMD's Authenticode
-signature, and copies the SDK licence beside them. The application queries
-supported providers and explicitly selects FSR 3.1; it does not silently select
-an ML upscaler or label another technique FSR 4.
+signature, and copies the SDK licence beside them. The application queries supported
+providers. FSR 3.1 explicitly selects an analytical 3.1 provider. FSR 4 selects a
+reported 4.x ML provider and chains the SDK API-version descriptor. If unavailable
+or context creation fails, it falls back to 3.1 with an explicit menu/log status.
+An analytical provider is never reported as active FSR 4 ML.

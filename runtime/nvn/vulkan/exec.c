@@ -7029,10 +7029,10 @@ static VkImageView post_process(VkCommandBuffer cb, TexBackend *b, double ow_d, 
 #ifdef _WIN32
     VkImageView dlss = vk_dlss_upscale(cb, b, v, ow, oh, renderer_present_count());
     if (dlss) {
-        bool fsr3 = g_settings.temporal_backend == TEMPORAL_FSR3;
-        int cas_strength = fsr3 ? g_settings.fsr3_cas_sharpness : g_settings.dlss_sharpness;
-        bool cas = (fsr3 ? g_settings.fsr3_cas : g_settings.dlss_cas) && cas_strength > 0;
-        int rcas_strength = fsr3 ? 0 : g_settings.dlss_rcas_sharpness; // FSR's own RCAS ran inside its dispatch
+        bool fsr3 = g_settings.temporal_backend == TEMPORAL_FSR3 || g_settings.temporal_backend == TEMPORAL_FSR4;
+        int cas_strength = *settings_temporal_cas_sharpness();
+        bool cas = *settings_temporal_cas() && cas_strength > 0;
+        int rcas_strength = fsr3 ? 0 : *settings_temporal_sharpness(); // FSR's own RCAS ran inside its dispatch
         if (!cas && !rcas_strength) return dlss;
         extern void vk_frame_suspend(void), vk_frame_resume(void);
         vk_frame_suspend();

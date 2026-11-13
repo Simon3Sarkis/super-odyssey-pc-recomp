@@ -14,16 +14,24 @@ cp third_party/imgui/LICENSE.txt "$D/Dear-ImGui-MIT.txt"
 cp third_party/smaa/LICENSE.txt "$D/SMAA-MIT.txt"
 cp third_party/fsr/LICENSE.txt "$D/AMD-FSR1-MIT.txt"
 cp third_party/ryujinx/LICENSE.txt "$D/Ryujinx-MIT.txt"
-cp $U/VulkanMemoryAllocator/LICENSE "$D/VulkanMemoryAllocator-MIT.txt"
-cp $U/sdl3/LICENSE.txt "$D/SDL3-zlib.txt"
-cp $U/shaderc/LICENSE "$D/Apache-2.0.txt"
-cp $U/llvm-libs/LICENSE "$D/LLVM-Apache-2.0-with-LLVM-exception.txt"
-cp $U/libwinpthread/COPYING "$D/winpthreads.txt"
-cp $U/libgcc/COPYING.RUNTIME "$D/GCC-runtime-library-exception.txt"
-cp $U/libgcc/COPYING3 "$D/GPL-3.0.txt"
+# MSYS2 packages' licences: the folder's name has changed between package versions (VulkanMemoryAllocator /
+# vulkan-memory-allocator, ...), so each is found by pattern: the first match, or a clear error
+lic() {  # out-name folder-pattern file-pattern
+    local f
+    f=$(find "$U" -mindepth 2 -maxdepth 3 -type f -ipath "$U/$2/$3" 2>/dev/null | sort | head -1)
+    [ -n "$f" ] || { echo "tools/dist_licenses.sh: no $3 under $U/$2"; ls "$U"; exit 1; }
+    cp "$f" "$D/$1"
+}
+lic VulkanMemoryAllocator-MIT.txt '*vulkan*memory*allocator*' 'LICENSE*'
+lic SDL3-zlib.txt 'sdl3' 'LICENSE*'
+lic Apache-2.0.txt 'shaderc' 'LICENSE*'
+lic LLVM-Apache-2.0-with-LLVM-exception.txt 'llvm-libs' 'LICENSE*'
+lic winpthreads.txt '*winpthread*' 'COPYING*'
+lic GCC-runtime-library-exception.txt 'libgcc' 'COPYING.RUNTIME'
+lic GPL-3.0.txt 'libgcc' 'COPYING3'
 cp $FF/COPYING.LGPLv2.1 "$D/FFmpeg-LGPL-2.1.txt"
 cp $FF/COPYING.GPLv2 "$D/GPL-2.0.txt"
-cp $U/libiconv/COPYING.LIB "$D/libiconv-LGPL-2.1.txt"
+lic libiconv-LGPL-2.1.txt 'libiconv' 'COPYING.LIB'
 cp "$(cygpath -u "$PYHOME")/LICENSE.txt" "$D/Python-PSF.txt"
 cp $SP/capstone-*.dist-info/LICENSE.TXT "$D/Capstone-BSD.txt"
 cp $SP/lz4-*.dist-info/licenses/LICENSE "$D/python-lz4-BSD.txt"

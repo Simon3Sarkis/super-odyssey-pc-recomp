@@ -2068,6 +2068,14 @@ static void translate_program(void *arg) {
         p->fi = maxwell_translate((const uint8_t *)(uintptr_t)p->code[1], p->cmax[1], STAGE_FRAGMENT, &p->fkey);
     }
     shader_time_log("translate vs+fs", p->code[1], t0);
+    {   // ODYSSEY_LOG_GLSL=<code address, hex>: the GLSL a vertex or fragment shader at that address becomes
+        static uint64_t want = 1;
+        if (want == 1) { const char *e = getenv("ODYSSEY_LOG_GLSL"); want = e ? strtoull(e, NULL, 16) : 0; }
+        if (want && (p->code[0] == want || p->code[1] == want)) {
+            const ShaderInfo *si = p->code[0] == want ? p->vi : p->fi;
+            LOG("[glsl] %s %llx:\n%s\n", p->code[0] == want ? "vs" : "fs", (unsigned long long)want, si && si->msl ? si->msl : "(none)");
+        }
+    }
     if (!p->vi->msl) {
         if (atomic_load(&p->urgent)) prog_tell_failure(p);
         prog_failed(p);
@@ -4772,6 +4780,12 @@ static VkDescriptorBufferInfo cbuf_info(int stage, ShaderInfo *si, int k, uint32
                 e[1] = (uint32_t)(st.sbuf[stage][i].addr >> 32);
                 e[2] = (uint32_t)st.sbuf[stage][i].size;
             }
+            // c[0x0][0x610]: the largest point size - a vertex shader writing gl_PointSize clamps to it
+            // (min(size, c[0x0][0x610])). Left 0, every point sprite was size 0 and drew nothing: the fluid surfaces'
+            // disturbance points (al::FluidSimulateWave::drawPoint) among them, so Cap Kingdom's fog never parted
+            // around Mario or rolled (a flat sheet).
+            float maxpt = g_vk.props.limits.pointSizeRange[1] > 0 ? g_vk.props.limits.pointSizeRange[1] : 2048.0f;
+            memcpy(&drv[0x610 / 4], &maxpt, 4);
         }
         uint64_t size = si->cbuf_size[0] > sizeof drv ? sizeof drv : (si->cbuf_size[0] ? si->cbuf_size[0] : 256);
         if (size < 0x500 && stage == 5) size = 0x500;

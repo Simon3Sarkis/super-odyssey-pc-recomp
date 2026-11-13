@@ -1688,7 +1688,8 @@ static void begin_pass(void) {
     pass_nlin = 0;
     for (int i = 0; i < st.rt.ncolor && i < 8; i++) {
         NvnTexture *t = st.rt.color[i];
-        if (t && t->stride && t->addr >= HEAP_BASE && t->addr < HEAP_BASE + HEAP_MAX) pass_lin[pass_nlin++] = t;
+        if (t && (t->flags & 0x10) && t->stride && t->addr >= HEAP_BASE && t->addr < HEAP_BASE + HEAP_MAX)
+            pass_lin[pass_nlin++] = t;
     }
     if (g_debug_frame) {
         dbg_ncolor = st.rt.ncolor < 8 ? st.rt.ncolor : 8;
@@ -4961,6 +4962,10 @@ static void linear_writeback(void) {
     VkCommandBuffer cb = VK_NULL_HANDLE;
     for (int i = 0; i < n; i++) {
         NvnTexture *t = pass_lin[i];
+        // SetStride alone does not select pitch-linear storage (see builder_storage_size).
+        // In particular agl can leave a pitch on a block-linear render target. Copying
+        // stride * height there writes beyond the allocation the builder requested.
+        if (!t || !(t->flags & 0x10) || !t->pool || t->pool_offset > t->pool->size) continue;
         TexBackend *b = t ? (TexBackend *)t->backend : NULL;
         const FormatInfo *fi = t ? t->layout.fmt : NULL;
         // (only the formats the game's CPU readers take: F16 - R16F, RG16F, RGBA16F - and RGBA8. The R32F linear targets
@@ -4969,8 +4974,13 @@ static void linear_writeback(void) {
         if (!b || !b->image || !fi || !fi->bpb || fi->bw != 1 || fi->bh != 1 || b->guest_format || b->width != t->width ||
             b->height != t->height || (b->aspect & ~VK_IMAGE_ASPECT_COLOR_BIT) || t->stride % fi->bpb)
             continue;
-        uint64_t off = t->addr - HEAP_BASE, size = t->stride * (uint64_t)t->height;
-        if (off + size > gmem_size || off % fi->bpb) continue;
+        uint64_t row = (uint64_t)t->width * fi->bpb;
+        if (!t->height || t->stride < row || t->stride / fi->bpb > UINT32_MAX || t->addr < HEAP_BASE) continue;
+        uint64_t available = t->pool->size - t->pool_offset;
+        // The final row has no trailing padding in VkBufferImageCopy's destination range.
+        if (row > available || (t->height > 1 && t->stride > (available - row) / (t->height - 1))) continue;
+        uint64_t off = t->addr - HEAP_BASE, size = t->stride * (uint64_t)(t->height - 1) + row;
+        if (off > gmem_size || size > gmem_size - off || off % fi->bpb) continue;
         if (!cb) { cb = vk_cmd(); vk_full_barrier(cb); }
         VkBufferImageCopy c = {.bufferOffset = off, .bufferRowLength = (uint32_t)(t->stride / fi->bpb),
                                .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, .imageExtent = {t->width, t->height, 1}};

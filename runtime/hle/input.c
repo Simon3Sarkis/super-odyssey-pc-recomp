@@ -17,6 +17,7 @@
 #include "../settings.h"
 #include "../input_bind.h"
 #include "../nvn/kbprompts.h"
+#include "motion_gate.h"
 
 enum {
     BTN_A = 0, BTN_B, BTN_X, BTN_Y, BTN_LSTICK, BTN_RSTICK, BTN_L, BTN_R, BTN_ZL, BTN_ZR, BTN_PLUS, BTN_MINUS,
@@ -307,6 +308,7 @@ static struct {
     uint64_t gyro_ns;     // the last gyro sample's time (sensor clock)
     int64_t sampling;
     uint64_t last_read_ns;
+    MotionGate gate;
 } mot = {.dir = {1, 0, 0, 0, 1, 0, 0, 0, 1}};
 
 static void motion_open(void) {
@@ -324,6 +326,7 @@ static void motion_open(void) {
     static const float id[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
     memcpy(mot.dir, id, sizeof id);
     mot.gyro_ns = 0;
+    motion_gate_init(&mot.gate);
     pthread_mutex_unlock(&motion_lock);
     if (pad) LOG("[input] motion: %s%s%s\n", a ? "accelerometer" : "", a && g ? " and " : "", g ? "gyro" : a ? "" : "none on this controller");
 }
@@ -357,13 +360,16 @@ static void motion_event(const SDL_GamepadSensorEvent *e) {
     pthread_mutex_lock(&motion_lock);
     // SDL: x right, y up, z toward the player (m/s^2, rad/s). The Switch: x = -x, y = z, z = -y (a mirror: the
     // rotation's axes the other way round)
+    if (menu_input_captured()) mot.gate.blocked = true;
     if (e->sensor == SDL_SENSOR_ACCEL) {
         mot.accel[0] = -e->data[0] / G, mot.accel[1] = e->data[2] / G, mot.accel[2] = -e->data[1] / G;
     } else if (e->sensor == SDL_SENSOR_GYRO) {
         float g[3] = {e->data[0], -e->data[2], e->data[1]};  // rad/s
         for (int i = 0; i < 3; i++) mot.gyro[i] = g[i] / TURN;
         uint64_t t = e->sensor_timestamp;
-        if (mot.gyro_ns && t > mot.gyro_ns && t - mot.gyro_ns < 100000000ull) {
+        bool integrate = g_settings.motion && !menu_input_captured() && !mot.gate.blocked &&
+                         (!mot.gate.resume_ns || plat_now_ns() - mot.gate.resume_ns >= 250000000ull);
+        if (integrate && mot.gyro_ns && t > mot.gyro_ns && t - mot.gyro_ns < 100000000ull) {
             float dt = (float)(t - mot.gyro_ns) / 1e9f, w[3] = {g[0] * dt, g[1] * dt, g[2] * dt};
             for (int i = 0; i < 3; i++) mot.angle[i] += mot.gyro[i] * dt;
             rotate_dir(mot.dir, w);
@@ -423,6 +429,10 @@ HLE_FUNC("_ZN2nn3hid22GetSixAxisSensorStatesEPNS0_18SixAxisSensorStateEiRKNS0_19
         f[2] = -1;  // (no motion: a controller lying still, so the game sees no shake)
         f[9] = f[13] = f[17] = 1;
     }
+    // Preserve the last pose rather than injecting a sudden gravity/orientation
+    // change when the menu takes control; discard menu movement on resume.
+    if (!mot.sampling || mot.sampling == 1) motion_gate_init(&mot.gate);
+    motion_gate_sample(&mot.gate, f, !live, now);
     *(uint32_t *)(s + 0x58) = 1;
     {   // ODYSSEY_LOG_MOTION=1: what the game reads, once a second (how many samples it asks for, the values)
         static int log = -1;

@@ -275,26 +275,35 @@ NVN(nvnMemoryPoolMap) {
     if (paint_trace < 0) paint_trace = getenv("ODYSSEY_LOG_PAINT_READS") != NULL;
     // These PaintObj loops bypass getColorFromLinearTexture. attackSensor
     // samples a whole player footprint, rather than a single coordinate.
+    // 1.4.1 (#3: its players had the same invisible poison): the same readers, matched by code - attackSensor by its
+    // vtable slot (0x70002a0e30), getColorFromLinearTexture beside the F16 reader (0x70007ac560), drawLabelingAndVanish
+    // beside attackSensor (0x70002a0590) - with the same instructions around their MemoryPoolMap calls and the same
+    // registers, except drawLabelingAndVanish's actor: x27 there (x26 in 1.0.0). medianFilter's Map has no
+    // counterpart in 1.4.1's code (the branch never ran in the 1.0.0 tests either).
     uint64_t paint_lr = c->x[30];
-    if (paint_feedback && (paint_lr == 0x70002dc49cull || paint_lr == 0x70002da5e0ull || paint_lr == 0x70002d99a0ull)) {
+    static int build = -1;  // 1: 1.0.0, 2: 1.4.1, 0: another build (no readback)
+    if (build < 0) {
         static const uint8_t v100[8] = {0x3c, 0xa1, 0x2d, 0xfa, 0xaf, 0x9c, 0x82, 0xda};
         const Module *main = loader_module("main");
-        if (main && !memcmp(main->build_id, v100, sizeof v100)) {
-            if (paint_lr == 0x70002dc49cull) paint_sync_rows(c->x[22], true, 3);
-            else if (paint_lr == 0x70002da5e0ull) paint_sync_rows(c->x[21], false, 0);
-            else if (c->x[26] >= GUEST_LO && c->x[26] < GUEST_HI - 0x79b0) {
-                // Prepare both buffers before labeling changes either on the CPU.
-                // Do not overwrite CPU edits at its inner per-pixel Map calls.
-                paint_sync_rows(G(uint64_t, c->x[26], 0x79a8), true, 1);
-                paint_sync_rows(G(uint64_t, c->x[26], 0x7968), true, 2);
-            }
+        build = main && !memcmp(main->build_id, v100, sizeof v100) ? 1 : loader_main_is_v141() ? 2 : 0;
+    }
+    uint64_t lr_attack = build == 1 ? 0x70002da5e0ull : 0x70002a12d0ull;
+    uint64_t lr_label = build == 1 ? 0x70002d99a0ull : 0x70002a0674ull;
+    uint64_t lr_color = build == 1 ? 0x7000a2b7ccull : 0x70007ac598ull;
+    int label_actor = build == 1 ? 26 : 27;
+    if (paint_feedback && build && (paint_lr == lr_attack || paint_lr == lr_label || (build == 1 && paint_lr == 0x70002dc49cull))) {
+        if (paint_lr == 0x70002dc49cull) paint_sync_rows(c->x[22], true, 3);
+        else if (paint_lr == lr_attack) paint_sync_rows(c->x[21], false, 0);
+        else if (c->x[label_actor] >= GUEST_LO && c->x[label_actor] < GUEST_HI - 0x79b0) {
+            // Prepare both buffers before labeling changes either on the CPU.
+            // Do not overwrite CPU edits at its inner per-pixel Map calls.
+            paint_sync_rows(G(uint64_t, c->x[label_actor], 0x79a8), true, 1);
+            paint_sync_rows(G(uint64_t, c->x[label_actor], 0x7968), true, 2);
         }
     }
-    if (c->x[30] == 0x7000a2b7ccull && (paint_trace || paint_feedback)) {
-        static const uint8_t v100[8] = {0x3c, 0xa1, 0x2d, 0xfa, 0xaf, 0x9c, 0x82, 0xda};
-        const Module *main = loader_module("main");
+    if (build && c->x[30] == lr_color && (paint_trace || paint_feedback)) {
         uint64_t td = c->x[21];
-        if (main && !memcmp(main->build_id, v100, sizeof v100) && td >= GUEST_LO && td < GUEST_HI - 0x50) {
+        if (td >= GUEST_LO && td < GUEST_HI - 0x50) {
             uint32_t pitch = G(uint32_t, td, 0x4c), x = c->x[20], y = c->x[19];
             uint64_t off = (uint32_t)c->x[22];
             int64_t byte = (int64_t)off + (int64_t)(int32_t)((pitch >> 2) * y + x) * 4;

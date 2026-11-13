@@ -6,6 +6,8 @@ subsequent arrival at the requested stage, then remain there for the settling
 budget before capturing. An exit code alone does not count as success. This
 requires the 1.4.1 warp address table added with this tool (1.0.0 uses its named
 functions). Unknown builds without all required helpers refuse the warp.
+Timeouts and Ctrl+C terminate only the launched test process tree, including a
+Windows address-layout re-exec child.
 
 Install Pillow in your development Python environment. Use a console build for
 automation so failures are logged without waiting on a fatal-error dialog. The
@@ -35,6 +37,8 @@ input/gyro, mouse camera and vibration are disabled for repeatability. Runs are
 hidden by default; `--visible` shows them. Startup test variables inherited from
 the shell are cleared. All screenshots have unique explicit paths rather than
 overwriting the data folder's `build/window.png`.
+`--frame-rate 120` exercises the experimental draw path separately; increase
+frame budgets if you want the same amount of settled gameplay time as at 60.
 
 The default frame budgets assume this completed-save/title input sequence.
 `--warp-frame`, `--frames`, `--settle` and `--timeout` are adjustable. A slower

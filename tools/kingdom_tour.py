@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import shutil
 import subprocess
 import time
@@ -34,6 +35,20 @@ ARRIVAL = re.compile(r'\[warp\] stage scene \w+ running at frame (\d+) stage "([
 def sha256(path):
     with path.open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def stop_test_process(proc, log):
+    # Windows can re-exec for the guest address reservation: its parent waits
+    # for that child. Kill only this test's tree, not every running game.
+    if os.name == 'nt':
+        subprocess.run(['taskkill', '/PID', str(proc.pid), '/T', '/F'], stdout=log,
+                       stderr=subprocess.STDOUT, check=False)
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    proc.wait()
 
 
 def comparison(image, baseline, difference):
@@ -82,6 +97,8 @@ def main():
     ap.add_argument('--frames', type=int, default=4500)
     ap.add_argument('--settle', type=int, default=600, help='minimum frames after destination arrival')
     ap.add_argument('--timeout', type=float, default=180, help='seconds per kingdom')
+    ap.add_argument('--frame-rate', choices=(60, 120), type=int, default=60,
+                    help='120 is experimental; use a larger frame budget for equivalent settling time')
     ap.add_argument('--visible', action='store_true')
     args = ap.parse_args()
     exe, data, save, out = (p.resolve() for p in (args.exe, args.data_root, args.save, args.out))
@@ -94,7 +111,7 @@ def main():
     out.mkdir(parents=True)
     settings = out / 'tour.ini'
     settings.write_text('window_mode = windowed\ndisplay_resolution = 1080p\n'
-                        'resolution = match\nvolume = 0\nframe_rate = 60\nframe_interp = 0\n'
+                        f'resolution = match\nvolume = 0\nframe_rate = {args.frame_rate}\nframe_interp = 0\n'
                         'temporal_backend = dlss\ndlss_mode = off\nantialias = off\n'
                         'upscaler = bilinear\naniso = 16\nmotion = 0\nvibration = 0\nmouse_camera = 0\n'
                         'skip_intro = 1\ncheck_updates = 0\n', encoding='ascii')
@@ -128,13 +145,15 @@ def main():
         with (out / f'{key}.log').open('wb') as log:
             flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             with subprocess.Popen([str(exe)], cwd=data, env=env, stdout=log, stderr=subprocess.STDOUT,
-                                  creationflags=flags) as proc:
+                                  creationflags=flags, start_new_session=os.name != 'nt') as proc:
                 try:
                     result['exit_code'] = proc.wait(timeout=args.timeout)
                 except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait()
+                    stop_test_process(proc, log)
                     result['status'] = 'timeout'
+                except KeyboardInterrupt:
+                    stop_test_process(proc, log)
+                    raise
         result['seconds'] = round(time.monotonic() - started, 2)
         log = (out / f'{key}.log').read_text(encoding='utf-8', errors='replace')
         arrivals = [(int(frame), name) for frame, name in ARRIVAL.findall(log)]

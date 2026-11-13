@@ -7,8 +7,9 @@ enum { RQ_EXEC = 1, RQ_FENCE, RQ_FRAME, RQ_PRESENT, RQ_DLSS_CAMERA, RQ_ODYSSEY_P
 typedef struct {
     uint64_t addr;
     uint32_t x, y, component, components;
-    uint16_t value;
+    uint32_t value;
     bool valid;
+    uint8_t component_bytes; // 0: F16 components (2 bytes); 4: one packed RGBA8 element
 } RqCpuTexel;
 bool rq_enabled(void);                            // (ODYSSEY_RENDER_THREAD=0: no; macOS: no)
 bool rq_on_thread(void);                          // the caller is the render thread

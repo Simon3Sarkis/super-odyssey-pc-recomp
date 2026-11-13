@@ -235,6 +235,46 @@ static bool fog_f16_map_reader(uint64_t lr) {
 }
 NVN(nvnMemoryPoolMap) {
     NvnPool *p = HOST(NvnPool, A(0));
+    // The 1.0.0 RGBA8 reader calculates its row index after Map. The paint mask
+    // is GPU-rendered; return only the requested, validated packed texel.
+    static int paint_feedback = -1;
+    if (paint_feedback < 0) {
+        const char *e = getenv("ODYSSEY_PAINT_CPU_READBACK");
+        paint_feedback = e && atoi(e) != 0;
+    }
+    static int paint_trace = -1;
+    if (paint_trace < 0) paint_trace = getenv("ODYSSEY_LOG_PAINT_READS") != NULL;
+    if (c->x[30] == 0x7000a2b7ccull && (paint_trace || paint_feedback)) {
+        static const uint8_t v100[8] = {0x3c, 0xa1, 0x2d, 0xfa, 0xaf, 0x9c, 0x82, 0xda};
+        const Module *main = loader_module("main");
+        uint64_t td = c->x[21];
+        if (main && !memcmp(main->build_id, v100, sizeof v100) && td >= GUEST_LO && td < GUEST_HI - 0x50) {
+            uint32_t pitch = G(uint32_t, td, 0x4c), x = c->x[20], y = c->x[19];
+            uint64_t off = (uint32_t)c->x[22];
+            int64_t byte = (int64_t)off + (int64_t)(int32_t)((pitch >> 2) * y + x) * 4;
+            bool valid = byte >= 0 && (uint64_t)byte < p->size && p->size - (uint64_t)byte >= 4;
+            uint32_t rgba = 0;
+            if (valid) memcpy(&rgba, (void *)(uintptr_t)(p->storage + byte), 4);
+            static uint64_t count;
+            ++count;
+            RqCpuTexel q = {.addr = p->storage + off, .x = x, .y = y, .components = 1, .component_bytes = 4};
+#ifndef __APPLE__
+            if (valid && (paint_feedback || count <= 64 || !(count % 2000))) {
+                if (rq_enabled()) rq_wait(rq_push(RQ_CPU_TEXEL, &q, 0));
+                else { extern void renderer_cpu_texel(RqCpuTexel *); renderer_cpu_texel(&q); }
+            }
+#endif
+            if (paint_feedback && q.valid) memcpy((void *)(uintptr_t)(p->storage + byte), &q.value, 4);
+            if (paint_trace && (count <= 64 || !(count % 2000)))
+                LOG("[paint-map] #%llu storage %llx size %llx offset %llx xy %u %u pitch %u byte %lld cpu %08x valid %d gpu %08x gpu-valid %d applied %d\n",
+                    (unsigned long long)count, (unsigned long long)p->storage, (unsigned long long)p->size,
+                    (unsigned long long)off, x, y, pitch, (long long)byte, rgba, valid, q.value, q.valid, paint_feedback && q.valid);
+            if (paint_trace && count == 1 && off < p->size) {
+                extern void nvn_log_overlapping_textures(const NvnTexture *, uint64_t, uint64_t);
+                nvn_log_overlapping_textures(NULL, p->storage + off, p->size - off);
+            }
+        }
+    }
     // The lifted game's direct calls bypass dispatch overrides. Observe the NVN
     // boundary instead, where the F16 reader has already calculated its row pitch.
     static int trace = -1;

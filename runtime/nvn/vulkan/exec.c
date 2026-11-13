@@ -6553,8 +6553,11 @@ void renderer_cpu_texel(RqCpuTexel *q) {
     NvnTexture *t = tex_trace_find(q->addr);
     TexBackend *b = t ? t->backend : NULL;
     const FormatInfo *fi = t ? t->layout.fmt : NULL;
-    if (!b || !b->image || !fi || !q->components || q->components > 4 || fi->bpb != q->components * 2 || q->component >= q->components ||
-        (t->format != 0x05 && t->format != 0x11 && t->format != 0x29) || b->guest_format ||
+    unsigned bytes = q->component_bytes ? q->component_bytes : 2;
+    bool format_ok = t && ((bytes == 2 && (t->format == 0x05 || t->format == 0x11 || t->format == 0x29)) ||
+        (bytes == 4 && q->components == 1 && t->format == 0x25 && b && b->gpu_owned));
+    if (!b || !b->image || !fi || !format_ok || !q->components || q->components > 4 || fi->bpb != q->components * bytes || q->component >= q->components ||
+        b->guest_format ||
         b->width != t->width || b->height != t->height || b->layers != 1 || b->depth != 1 || b->samples != 1 ||
         q->x >= b->width || q->y >= b->height || b->width > 1024 || b->height > 1024) return;
     typedef struct { uint64_t id, frame, size; uint8_t *bytes; } Cache;
@@ -6573,14 +6576,14 @@ void renderer_cpu_texel(RqCpuTexel *q) {
         VkBufferImageCopy cp = {.bufferOffset = out.off, .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
                                 .imageExtent = {b->width, b->height, 1}};
         vkCmdCopyImageToBuffer(cb, b->image, VK_IMAGE_LAYOUT_GENERAL, out.buf, 1, &cp);
-        wait_why = "fog CPU feedback probe";
+        wait_why = bytes == 4 ? "paint CPU feedback probe" : "fog CPU feedback probe";
         renderer_flush();
         if (e->size != size) { free(e->bytes); e->bytes = malloc(size); e->size = size; }
         if (!e->bytes) { e->size = 0; return; }
         memcpy(e->bytes, out.ptr, size);
         e->frame = frame;
     }
-    memcpy(&q->value, e->bytes + ((uint64_t)q->y * b->width + q->x) * fi->bpb + q->component * 2, 2);
+    memcpy(&q->value, e->bytes + ((uint64_t)q->y * b->width + q->x) * fi->bpb + q->component * bytes, bytes);
     q->valid = true;
 }
 

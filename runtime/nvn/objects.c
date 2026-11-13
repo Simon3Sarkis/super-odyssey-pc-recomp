@@ -230,7 +230,8 @@ NVN(nvnMemoryPoolMap) {
     if (trace < 0) trace = getenv("ODYSSEY_LOG_LINREAD") != NULL;
     static uint64_t count;
     static int feedback = -1;
-    if (feedback < 0) { const char *e = getenv("ODYSSEY_FOG_CPU_READBACK"); feedback = e && atoi(e) != 0; }
+    // On by default (the reactive Cap Kingdom fog needs it); ODYSSEY_FOG_CPU_READBACK=0 switches it off.
+    if (feedback < 0) { const char *e = getenv("ODYSSEY_FOG_CPU_READBACK"); feedback = !e || atoi(e) != 0; }
     if ((trace || feedback) && c->x[30] == 0x70007ac640ull) {
         uint32_t nc = c->x[19], comp = c->x[20], y = c->x[21], x = c->x[22];
         uint64_t off = (uint32_t)c->x[23];

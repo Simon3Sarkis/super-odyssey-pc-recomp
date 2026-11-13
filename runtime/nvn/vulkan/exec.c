@@ -4499,7 +4499,7 @@ static void dlss_probe_scene(ShaderInfo *fs) {
     }
     bool upscale = false;
 #ifdef _WIN32
-    upscale = vk_dlss_enabled();
+    upscale = vk_temporal_enabled();
 #endif
     if (!enabled && !upscale) return;
     uint64_t frame = renderer_present_count();
@@ -7029,20 +7029,23 @@ static VkImageView post_process(VkCommandBuffer cb, TexBackend *b, double ow_d, 
 #ifdef _WIN32
     VkImageView dlss = vk_dlss_upscale(cb, b, v, ow, oh, renderer_present_count());
     if (dlss) {
-        bool cas = g_settings.dlss_cas && g_settings.dlss_sharpness > 0;
-        if (!cas && !g_settings.dlss_rcas_sharpness) return dlss;
+        bool fsr3 = g_settings.temporal_backend == TEMPORAL_FSR3;
+        int cas_strength = fsr3 ? g_settings.fsr3_cas_sharpness : g_settings.dlss_sharpness;
+        bool cas = (fsr3 ? g_settings.fsr3_cas : g_settings.dlss_cas) && cas_strength > 0;
+        int rcas_strength = fsr3 ? 0 : g_settings.dlss_rcas_sharpness; // FSR's own RCAS ran inside its dispatch
+        if (!cas && !rcas_strength) return dlss;
         extern void vk_frame_suspend(void), vk_frame_resume(void);
         vk_frame_suspend();
-        if (g_settings.dlss_rcas_sharpness > 0) {
+        if (rcas_strength > 0) {
             TexBackend *sharp = post_image(6, ow, oh);
-            float pc[8] = {exp2f(-2.0f * (1.0f - g_settings.dlss_rcas_sharpness * 0.01f)), 0, 0, 0, (float)ow, (float)oh};
+            float pc[8] = {exp2f(-2.0f * (1.0f - rcas_strength * 0.01f)), 0, 0, 0, (float)ow, (float)oh};
             post_pass(cb, "dlss_rcas.frag", &dlss, 1, sharp, pc, false);
             vk_full_barrier(cb);
             dlss = post_view(sharp);
         }
         if (cas) {
             TexBackend *sharp = post_image(5, ow, oh);
-            float pc[8] = {g_settings.dlss_sharpness * 0.01f};
+            float pc[8] = {cas_strength * 0.01f};
             post_pass(cb, "cas.frag", &dlss, 1, sharp, pc, false);
             vk_full_barrier(cb);
             dlss = post_view(sharp);

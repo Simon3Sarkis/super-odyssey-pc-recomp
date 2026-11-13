@@ -215,7 +215,8 @@ static void create_device(void) {
 
     // features the backend relies on (all present on current desktop drivers)
     VkPhysicalDeviceVulkan13Features have13 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
-    VkPhysicalDeviceFeatures2 have = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &have13};
+    VkPhysicalDeviceVulkan12Features have12 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = &have13};
+    VkPhysicalDeviceFeatures2 have = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &have12};
     vkGetPhysicalDeviceFeatures2(g_vk.phys, &have);
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT div = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT,
@@ -233,6 +234,7 @@ static void create_device(void) {
                                             .pipelineCreationCacheControl = have13.pipelineCreationCacheControl,
                                             .pNext = g_vk.custom_border ? (void *)&cbc : g_vk.divisor ? (void *)&div : NULL};
     VkPhysicalDeviceVulkan12Features f12 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+                                            .shaderFloat16 = have12.shaderFloat16,
                                             .timelineSemaphore = VK_TRUE, .shaderInt8 = VK_TRUE, .samplerMirrorClampToEdge = VK_TRUE,
                                             .uniformAndStorageBuffer8BitAccess = VK_TRUE, .storageBuffer8BitAccess = VK_TRUE,
                                             .scalarBlockLayout = VK_TRUE, .pNext = &f13};
@@ -253,6 +255,7 @@ static void create_device(void) {
     g_vk.feat_aniso = h->samplerAnisotropy;
     b->textureCompressionBC = h->textureCompressionBC;
     b->shaderInt64 = h->shaderInt64;
+    b->shaderInt16 = h->shaderInt16;
     b->depthBiasClamp = h->depthBiasClamp;
     b->depthClamp = h->depthClamp;
     b->largePoints = h->largePoints;
@@ -1193,7 +1196,7 @@ static bool frame_placement(float v[4], float pv[8]) {
     output_scale(dw, dh, odyssey_wide(), SDL_GetTicksNS() / 1e9, -1, &os);
 #ifdef _WIN32
     // Only the automatic choice lets a DLSS preset pick the input resolution.
-    double dlss_scale = vk_dlss_scale();
+    double dlss_scale = vk_temporal_scale();
     if (g_settings.res_mode == RES_MATCH && dlss_scale && os.shape == 1.0 && os.vh >= 720) {
         os.sx = os.vw * dlss_scale / GAME_W;
         os.sy = os.vh * dlss_scale / GAME_H;
@@ -1217,7 +1220,7 @@ static void frame_decide(NvnTexture *t, uint64_t present_at) {
     g_interp_present_frame = total_frames;
     int interp_want = odyssey_native_120_enabled() ? INTERP_OFF : interp_wanted();
 #ifdef _WIN32
-    if (vk_dlss_enabled()) interp_want = INTERP_OFF;
+    if (vk_temporal_enabled()) interp_want = INTERP_OFF;
 #endif
     if (interp_want == INTERP_ON && total_frames < brake_until) interp_want = INTERP_OFF;
     // (in-betweens need a display at 90 Hz or more - ODYSSEY_INTERP=on: any; below, not even the logging)
@@ -1546,6 +1549,8 @@ void ui_window_init(void) {
     create_device();
 #ifdef _WIN32
     vk_dlss_probe_run();
+    extern void vk_fsr3_init(void);
+    vk_fsr3_init();
 #endif
     create_swapchain();
     vk_exec_init();

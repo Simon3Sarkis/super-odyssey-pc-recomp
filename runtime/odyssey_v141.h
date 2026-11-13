@@ -19,6 +19,7 @@ static const OdysseyV141Sym ODYSSEY_V141_SYMS[] = {
     {"_ZN2al15GameFrameworkNx9procDraw_Ev", 0x70006254b0ull},                          // vtable slot 30
     {"_ZNK10StageScene8drawMainEv", 0x7000473270ull},                                  // vtable slot 8
     {"_ZNK20DemoChangeWorldScene8drawMainEv", 0x7000446d80ull},                        // fuzzy 0.47, same size
+    {"_ZNK9DemoScene8drawMainEv", 0x7000448390ull},                                   // vtable DemoScene slot 8
     {"_ZN4sead15GameFrameworkNx9procCalc_Ev", 0x70009421a0ull},                        // vtable slot 31
     {"_ZN4sead13ControllerMgr4calcEv", 0x7000964b10ull},                               // vtable slot 22
     {"_ZN2al18updateGraphicsPrevEPNS_5SceneE", 0x700074e940ull},                       // code shape

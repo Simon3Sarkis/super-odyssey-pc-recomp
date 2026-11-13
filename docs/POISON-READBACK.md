@@ -69,8 +69,9 @@ Disassembly of the owner's 1.0.0 file verified these layouts and Map calls.
 Pitch comes from TextureData+0x4c. The point hook preserves the reader's 32-bit
 indexing. Existing F16 requests retain their two-byte interpretation.
 
-`ODYSSEY_PAINT_CPU_READBACK=1` enables this preview. It remains **off by default**
-pending manual interaction testing. The independent linear-layout correction
+Simon confirmed revision 2 completely fixed the issue. The verified 1.0.0 paint
+paths are now **enabled by default**; `ODYSSEY_PAINT_CPU_READBACK=0` disables them
+for comparison. The independent linear-layout correction
 applies normally. `ODYSSEY_LOG_PAINT_READS=1` enables sampled CPU/GPU comparison
 logs without itself changing CPU bytes.
 
@@ -94,7 +95,8 @@ logs without itself changing CPU bytes.
   comparisons.
 - Manual checks must include crossing ground after clearing it with Cappy,
   taking damage from actual visible poison, and completing/retrying the fight.
-  Do not close the public issue before that confirmation. GTX 1060 and other
+  Simon confirmed the issue completely fixed in his manual test. The original
+  reporter's GTX 1060 and other
   hardware, long sessions, experimental 120 FPS, other paint effects and Linux
   remain unverified. The Metal renderer does not implement this readback path.
 - Only the verified reader/filter paths are covered. It is not a general NVN

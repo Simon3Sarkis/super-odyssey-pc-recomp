@@ -269,7 +269,7 @@ NVN(nvnMemoryPoolMap) {
     static int paint_feedback = -1;
     if (paint_feedback < 0) {
         const char *e = getenv("ODYSSEY_PAINT_CPU_READBACK");
-        paint_feedback = e && atoi(e) != 0;
+        paint_feedback = !e || atoi(e) != 0;
     }
     static int paint_trace = -1;
     if (paint_trace < 0) paint_trace = getenv("ODYSSEY_LOG_PAINT_READS") != NULL;

@@ -29,16 +29,19 @@ build-ID gated alongside 1.4.1; both register layouts were checked against the
 owner's extracted files. Private stock-60-FPS runs passed on both versions.
 See FOG-READBACK.md.
 
-Next manual test: revision 2 of the opt-in 1.0.0 poison collision readback candidate. A private
+Simon confirmed revision 2 completely fixes the 1.0.0 poison issue. A private
 Spewart run with the reporter's save found stale CPU mask bytes compared with
-the rendered image. Candidate and 1.4.1 fog regression runs passed, but cleaned
-ground, real poison damage and fight completion still need interaction testing.
+the rendered image. Candidate and 1.4.1 fog regression runs passed.
 Simon reported the first candidate still failed. Revision 2 also covers the
 direct footprint reader, labeling buffers, CPU-edit uploads and 0x40 linear
 render-target layout. The 4K clean-ground control kept 3 HP; entering visible
-poison produced a poison reaction and 2 HP. Manual fight confirmation is pending.
-See POISON-READBACK.md. This does not close issue #3 or enable the feature in
-normal launches.
+poison produced a poison reaction and 2 HP. The verified 1.0.0 readback paths
+are now enabled by default, with a diagnostic opt-out. See POISON-READBACK.md.
+No public issue mutation, push, release or production-install changes were made.
+
+Next: reproducible Windows packaging from a clean dependency build, followed by
+Windows ZIP/Linux AppImage CI artifacts. Preserve the tested features; do not
+reuse an old release directory or include game content.
 
 A separate 120 FPS / 1280x720 hidden-window save-load test crashed before its
 warp (TextureDataEx::reset, access 0x20). The 60 FPS tour passed. Its cause and

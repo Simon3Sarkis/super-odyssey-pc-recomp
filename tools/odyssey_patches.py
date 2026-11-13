@@ -150,6 +150,7 @@ for _h in filter(None, os.environ.get('ODYSSEY_HOOKS', '').replace(' ', '').spli
 # Functions replaced by the runtime (runtime/hle/hle_symbols.txt) that 1.4.1's main has no names for: address -> name
 HLE_141 = {
     0x700097bfa0: '_ZN4sead6system4HaltEv',
+    0x70004dba00: '_ZN14GameDataHolder44readFromSaveDataBufferCommonFileOnlyLanguageEv',  # (code shape: odyssey_language.c)
 }
 
 # main's build -> its patches (gen.py; other modules and builds are lifted unpatched)

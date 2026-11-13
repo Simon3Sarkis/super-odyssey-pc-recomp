@@ -41,6 +41,11 @@ static const OdysseyV141Sym ODYSSEY_V141_SYMS[] = {
     {"_ZN16GameDataFunction18tryChangeNextStageE20GameDataHolderWriterPK15ChangeStageInfo", 0x70004d2c50ull},
     {"_ZN16GameDataFunction35tryChangeNextStageWithDemoWorldWarpE20GameDataHolderWriterPKc", 0x70004d2d30ull},
     {"_ZN16GameDataFunction19getCurrentStageNameE22GameDataHolderAccessor", 0x70004d2df0ull},
+    // The menu's Language over the save's (runtime/hle/odyssey_language.c): matched by code shape (tools/match141.py
+    // and the disassembly: the 0x38-byte RamReadStream read, then format "%s" into +0x50)
+    {"_ZN14GameDataHolder44readFromSaveDataBufferCommonFileOnlyLanguageEv", 0x70004dba00ull},
+    {"_ZN14GameDataHolder11setLanguageEPKc", 0x70004db010ull},
+    {"_ZN2al21getSaveDataWorkBufferEv", 0x700074b1d0ull},  // (the reader's first call)
 };
 
 // Addresses the runtime uses directly for 1.0.0, and their 1.4.1 counterparts

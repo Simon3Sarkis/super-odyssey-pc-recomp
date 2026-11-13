@@ -1062,7 +1062,8 @@ static void tab_about(void) {
         for (int i = 1; i < N_LANGUAGES; i++) names[i] = g_language_names[i];
         if (choice("Language", &g_settings.language, names, N_LANGUAGES)) settings_save();
     }
-    hint("The game's text language, as its own system setting. Applies the next time the game starts.");
+    hint("The game's text language. Auto keeps the one your save has (the game's own Options > Language changes it); "
+         "any other choice replaces it. Applies the next time the game starts.");
     ImGui::Spacing();
     header("Controller");
     toggle("Motion controls", &g_settings.motion);

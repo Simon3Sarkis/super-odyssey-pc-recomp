@@ -113,7 +113,8 @@ endif
 GAMELIB_SRCS := tools/gen.py tools/lifter.py tools/analyze.py tools/nso.py tools/passes.py tools/odyssey_patches.py \
                 tools/simd_c.py tools/gamelib_entry.c runtime/hle/hle_symbols.txt \
                 runtime/cpu.h runtime/simd.h runtime/simd_fp.h runtime/gamelib.h tools/zig_slim.sh
-GAMELIB_ID := $(shell (cat $(GAMELIB_SRCS); echo '$(GENFLAGS)') | (shasum -a 256 2>/dev/null || sha256sum) | cut -c1-16)
+# (line endings don't count: a Windows checkout with CRLF and GitHub's LF one make the same library)
+GAMELIB_ID := $(shell (cat $(GAMELIB_SRCS); echo '$(GENFLAGS)') | tr -d '\015' | (shasum -a 256 2>/dev/null || sha256sum) | cut -c1-16)
 
 RT_OBJ   := $(patsubst runtime/%.c,$(B)/rt/%.o,$(RT_SRC))
 # (Windows: library headers' own paths, e.g. an assert's __FILE__ in vk_mem_alloc.h, name MSYS2's folder - which can be
@@ -131,7 +132,7 @@ $(B)/obj/%.o: $(GEN)/%.c runtime/cpu.h
 $(B)/obj/tools/gamelib_entry.o: tools/gamelib_entry.c $(GAMELIB_SRCS) $(wildcard $(GEN)/*/*_table.c)
 	@mkdir -p $(dir $@)
 	$(CC) $(GENFLAGS) -DGAMELIB_ID='"$(GAMELIB_ID)"' -DGAMELIB_MODULES='$(foreach m,$(GEN_MODS),X($(m)))' -c $< -o $@
-$(B)/rt/gamelib.o: $(GAMELIB_SRCS)
+$(B)/rt/gamelib.o: $(GAMELIB_SRCS) Makefile  # (GAMELIB_ID is computed there)
 $(B)/rt/gamelib.o: RTFLAGS += -DGAMELIB_ID='"$(GAMELIB_ID)"'
 # the setup page's build of it on the player's machine (runtime/gamebuild.c) uses the same flags
 $(B)/rt/gamebuild.o: $(GAMELIB_SRCS) Makefile

@@ -206,11 +206,74 @@ uint64_t plat_heap_bytes(void) { return 0; }
 void plat_heap_histogram(void) {}
 void plat_heap_check(const char *where) { (void)where; }
 
-// An error box that never hangs. SDL tries zenity first and waits for it to end, and zenity can hang without ever
-// showing a window (seen on SteamOS's desktop). With zenity out of PATH, SDL draws its own X11 box; only if that fails
-// in a Wayland session (no Xwayland) is zenity tried. Only called just before the process ends, so the changed PATH
-// doesn't matter.
+// An error before the game has a window of its own (the first start: no Vulkan driver, say), in a plain window of ours:
+// SDL's text, the software renderer. SDL's message box draws its own X11 window without WM_CLASS and with a WM_NAME
+// that older tools can't read (the AppImage catalog's test, xdotool 2016, never saw it), and in a Wayland session
+// without Xwayland it needs zenity. Closed by Enter / Escape / a click / a controller button / the window's X.
+static bool error_window(const char *text) {
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return false;
+    SDL_InitSubSystem(SDL_INIT_GAMEPAD);  // (a Steam Deck: the A button closes it)
+    enum { W = 760, SCALE = 2, CH = 8 * SCALE, LINE = 12 * SCALE, MARGIN = 20 };
+    const int cols = (W - 2 * MARGIN) / CH;
+    // word-wrapped lines (a word longer than a line - a path - is cut where the line ends)
+    static char lines[64][128];
+    int n = 0, len = 0;
+    for (const char *p = text; *p && n < 60;) {
+        if (*p == '\n') { lines[n][len] = 0; n++, len = 0; p++; continue; }
+        size_t word = strcspn(p, " \n");
+        if (len && len + (int)word > cols) { lines[n][len] = 0; n++, len = 0; }
+        if (*p == ' ' && !len) { p++; continue; }
+        size_t take = word ? word : 1;
+        if (take > (size_t)(cols - len)) take = (size_t)(cols - len);
+        memcpy(lines[n] + len, p, take);
+        len += (int)take, p += take;
+        if (len >= cols) { lines[n][len] = 0; n++, len = 0; }
+    }
+    if (len) lines[n][len] = 0, n++;
+    const char *hint = "Enter or a click closes this window.";
+    int h = MARGIN * 2 + (n + 2) * LINE;
+    SDL_Window *w = SDL_CreateWindow(RT_APP_NAME, W, h, 0);
+    if (!w) return false;
+    SDL_Renderer *r = SDL_CreateRenderer(w, "software");
+    if (!r) r = SDL_CreateRenderer(w, NULL);
+    if (!r) { SDL_DestroyWindow(w); return false; }
+    SDL_SetRenderScale(r, SCALE, SCALE);
+    for (bool done = false; !done;) {
+        SDL_SetRenderDrawColor(r, 32, 32, 36, 255);
+        SDL_RenderClear(r);
+        SDL_SetRenderDrawColor(r, 235, 235, 235, 255);
+        for (int i = 0; i < n; i++)
+            SDL_RenderDebugText(r, MARGIN / (float)SCALE, (MARGIN + i * LINE) / (float)SCALE, lines[i]);
+        SDL_SetRenderDrawColor(r, 150, 150, 160, 255);
+        SDL_RenderDebugText(r, MARGIN / (float)SCALE, (MARGIN + (n + 1) * LINE) / (float)SCALE, hint);
+        SDL_RenderPresent(r);
+        SDL_Event e;
+        if (!SDL_WaitEventTimeout(&e, 250)) continue;
+        do {
+            switch (e.type) {
+            case SDL_EVENT_QUIT: case SDL_EVENT_WINDOW_CLOSE_REQUESTED: case SDL_EVENT_MOUSE_BUTTON_UP:
+            case SDL_EVENT_GAMEPAD_BUTTON_DOWN: done = true; break;
+            case SDL_EVENT_KEY_DOWN:
+                if (e.key.key == SDLK_RETURN || e.key.key == SDLK_ESCAPE || e.key.key == SDLK_SPACE) done = true;
+                break;
+            case SDL_EVENT_GAMEPAD_ADDED: SDL_OpenGamepad(e.gdevice.which); break;
+            }
+        } while (SDL_PollEvent(&e));
+    }
+    SDL_DestroyRenderer(r);
+    SDL_DestroyWindow(w);
+    return true;
+}
+
+// An error box that never hangs. Before the game's window: error_window. After it (a crash in play): SDL's message box,
+// which tries zenity first and waits for it to end - and zenity can hang without ever showing a window (seen on
+// SteamOS's desktop). With zenity out of PATH, SDL draws its own X11 box; only if that fails in a Wayland session (no
+// Xwayland) is zenity tried. Only called just before the process ends, so the changed PATH doesn't matter.
 void plat_error_box(const char *text) {
+    int windows = 0;
+    SDL_Window **list = SDL_WasInit(SDL_INIT_VIDEO) ? SDL_GetWindows(&windows) : NULL;
+    SDL_free(list);
+    if (!windows && error_window(text)) return;
     const char *path = getenv("PATH");
     char *saved = path ? strdup(path) : NULL;
     setenv("PATH", "", 1);

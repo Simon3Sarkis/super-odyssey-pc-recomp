@@ -43,10 +43,13 @@ def comparison(image, baseline, difference):
             return {'comparison': 'size_mismatch', 'size': a.size, 'baseline_size': b.size}
         diff = ImageChops.difference(a, b)
         mean = sum(ImageStat.Stat(diff).mean) / (3 * 255)
+        # A small broken texture can disappear in a whole-screen average.
+        local = max(sum(ImageStat.Stat(diff.crop((x, y, min(x + 32, a.width), min(y + 32, a.height)))).mean)
+                    / (3 * 255) for y in range(0, a.height, 32) for x in range(0, a.width, 32))
         # Save amplified differences even below the threshold for human review.
         ImageEnhance.Contrast(diff).enhance(4).save(difference)
-        return {'comparison': 'review' if mean > 0.01 else 'within_threshold',
-                'mean_absolute_difference': mean}
+        return {'comparison': 'review' if mean > 0.01 or local > 0.08 else 'within_threshold',
+                'mean_absolute_difference': mean, 'max_tile_difference': local}
 
 
 def write_report(out, report):

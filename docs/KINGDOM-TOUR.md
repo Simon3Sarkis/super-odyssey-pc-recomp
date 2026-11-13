@@ -60,8 +60,10 @@ Return codes: 0 = captures completed and any comparisons were within the current
 threshold; 1 = a run failed; 2 = visual review needed (including different image
 dimensions or missing baseline captures). With no baseline, results say
 `no_baseline`: capture completion does not mean a release comparison passed.
-The comparison threshold is mean absolute RGB difference of 1% across the
-whole image. Difference images are also saved below that threshold.
+Review is flagged at mean absolute RGB difference above 1% across the whole
+image or above 8% in any 32x32 tile. The local check catches small errors that
+a whole-screen average can hide. Difference images are also saved below those
+thresholds.
 
 These are spawn-view screenshots. Animated fog, NPCs, wind, water, time of day
 and load timing can cause legitimate differences. A small average difference

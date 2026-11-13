@@ -31,17 +31,19 @@ static _Atomic uint64_t pending_presses;
 static _Thread_local uint64_t tick_buttons;
 static _Thread_local bool tick_input_active;
 static _Atomic int32_t key_lx, key_ly, key_rx, key_ry, pad_lx, pad_ly, pad_rx, pad_ry;
-static uint8_t keys_down[SDL_SCANCODE_COUNT];
+static uint8_t keys_down[BIND_KEY_CODE_COUNT];  // (keys, then the mouse buttons: input_bind.h)
 static SDL_Gamepad *pad;
 static _Atomic int64_t sampling;
 
 // Host keys / buttons held by a test script (ODYSSEY_HOST_INPUT, input_frame): they go through the bindings
-static uint8_t test_keys[SDL_SCANCODE_COUNT];
+static uint8_t test_keys[BIND_KEY_CODE_COUNT];
 static _Atomic uint32_t test_pad;
 static _Atomic int32_t test_lx, test_ly;  // (a resting stick's drift: "lstick" in ODYSSEY_HOST_INPUT)
 static bool host_test;  // (then a real controller is left out: the player's own pad must not spoil the test)
 
-static int held_key(int sc) { return sc > 0 && sc < SDL_SCANCODE_COUNT && (keys_down[sc] || test_keys[sc]); }
+static int held_key(int sc) { return sc > 0 && sc < BIND_KEY_CODE_COUNT && (keys_down[sc] || test_keys[sc]); }
+static _Atomic uint64_t wheel_release_ns[2];  // a wheel turn is a press this long (BIND_WHEEL_UP / _DOWN)
+#define WHEEL_PRESS_NS 80000000ull
 
 static void latch_presses(uint64_t buttons) {
     if (buttons && odyssey_native_120_enabled()) atomic_fetch_or(&pending_presses, buttons);
@@ -546,8 +548,21 @@ void input_handle_event(const SDL_Event *e) {
             if (fabsf(e->motion.xrel) + fabsf(e->motion.yrel) > 2) kbprompts_note_device(true);  // (not a jitter)
         }
         break;
-    case SDL_EVENT_MOUSE_BUTTON_DOWN:
-        kbprompts_note_device(true);
+    case SDL_EVENT_MOUSE_BUTTON_DOWN: case SDL_EVENT_MOUSE_BUTTON_UP:  // (bound like keys: input_bind.h)
+        if (e->type == SDL_EVENT_MOUSE_BUTTON_DOWN) kbprompts_note_device(true);
+        if (e->button.button >= SDL_BUTTON_LEFT && e->button.button <= SDL_BUTTON_X2) {
+            keys_down[BIND_MOUSE_LEFT + e->button.button - SDL_BUTTON_LEFT] = e->type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+            recompute_keyboard();
+        }
+        break;
+    case SDL_EVENT_MOUSE_WHEEL:
+        if (e->wheel.y != 0) {
+            int up = (e->wheel.y > 0) != (e->wheel.direction == SDL_MOUSEWHEEL_FLIPPED);
+            keys_down[up ? BIND_WHEEL_UP : BIND_WHEEL_DOWN] = 1;
+            atomic_store(&wheel_release_ns[!up], plat_now_ns() + WHEEL_PRESS_NS);
+            recompute_keyboard();
+            kbprompts_note_device(true);
+        }
         break;
     case SDL_EVENT_WINDOW_FOCUS_LOST:
         input_reset();
@@ -635,7 +650,7 @@ static void host_test_frame(uint64_t frame) {
     if (!init) { init = 1; hspec = getenv("ODYSSEY_HOST_INPUT"); bspec = getenv("ODYSSEY_BIND_TEST"); host_test = hspec; }
     char buf[2048];
     if (hspec) {
-        uint8_t keys[SDL_SCANCODE_COUNT] = {0};
+        uint8_t keys[BIND_KEY_CODE_COUNT] = {0};
         uint32_t padm = 0;
         int32_t sx = 0, sy = 0;
         snprintf(buf, sizeof buf, "%s", hspec);
@@ -649,7 +664,12 @@ static void host_test_frame(uint64_t frame) {
                 continue;
             }
             if (frame < start || frame >= start + len) continue;
-            if (!strcmp(dev, "key")) { SDL_Scancode sc = SDL_GetScancodeFromName(name); if (sc) keys[sc] = 1; }
+            if (!strcmp(dev, "key")) {  // a key, or a mouse button by its binding name ("Mouse Left", "Wheel Up")
+                int sc = SDL_GetScancodeFromName(name);
+                for (int m = BIND_MOUSE_LEFT; !sc && m < BIND_KEY_CODE_COUNT; m++)
+                    if (!strcmp(name, bind_key_label(m))) sc = m;
+                if (sc) keys[sc] = 1;
+            }
             else if (!strcmp(dev, "lstick")) sscanf(name, "%d/%d", &sx, &sy);
             else if (!strcmp(dev, "mouse")) {  // the mouse moved by <dx>/<dy> counts each frame (the mouse camera)
                 float mx, my;
@@ -704,6 +724,13 @@ static uint64_t g_pad_obj;
 volatile int g_inject_plus;  // frames to hold Plus for the game (movie.c: A/B skip the opening on rando seeds)
 RT_ON_RESET(input_reboot_reset) { g_pad_obj = 0; g_inject_plus = 0; }  // (reboot: the controller object was guest memory)
 void input_frame(uint64_t frame) {
+    for (int i = 0; i < 2; i++) {  // a wheel turn's press ends
+        uint64_t at = atomic_load(&wheel_release_ns[i]);
+        if (at && plat_now_ns() >= at && atomic_compare_exchange_strong(&wheel_release_ns[i], &at, 0)) {
+            keys_down[i ? BIND_WHEEL_DOWN : BIND_WHEEL_UP] = 0;
+            recompute_keyboard();
+        }
+    }
     if (g_pad_obj && getenv("ODYSSEY_DUMP_PAD") && frame % 600 == 0) {
         const uint8_t *m = (const uint8_t *)(uintptr_t)(g_pad_obj - 0x98);
         LOG("[pad] mgr %llx 4e0=%u 4e4=%u 4e8=%u 548=%#x 54c..=%02x %02x %02x 56c=%02x\n", g_pad_obj - 0x98,

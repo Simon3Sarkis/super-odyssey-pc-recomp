@@ -312,7 +312,9 @@ static int key_name(int sc, char *out, size_t n) {
 }
 
 // a key cap filling the box: the cap, its top face's edge, the key's name cut out of the face
+static void mouse_button(Canvas *c, float x0, float y0, float x1, float y1, int code);
 static void keycap(Canvas *c, float x0, float y0, float x1, float y1, int sc, bool small) {
+    if (bind_is_mouse(sc)) { mouse_button(c, x0, y0, x1, y1, sc); return; }
     float w = x1 - x0, h = y1 - y0, m = fminf(w, h);
     rrect(c, x0, y0, x1, y1, m * 0.22f, FILL);
     float side = m * 0.09f, bottom = m * 0.2f, line = fmaxf(1.4f, m * 0.04f);
@@ -351,6 +353,29 @@ static void mouse(Canvas *c, float x0, float y0, float x1, float y1, bool lr) {
         float r = fminf((w - bw) / 2 * 0.4f, h * 0.14f), ay = top + bh * 0.62f;
         arrow(c, x0 + (w - bw) / 4, ay, r, 2, FILL);
         arrow(c, x1 - (w - bw) / 4, ay, r, 3, FILL);
+    }
+}
+
+// an input bound to a mouse button or the wheel (input_bind.h BIND_MOUSE_*): the mouse, that button cut out of it (the
+// wheel: an arrow beside it, up or down; the side buttons: a mark on its left side)
+static void mouse_button(Canvas *c, float x0, float y0, float x1, float y1, int code) {
+    float h = y1 - y0, bh = h * 0.92f, bw = fminf(bh * 0.62f, (x1 - x0) * 0.62f);
+    float cx = (x0 + x1) / 2, top = y0 + (h - bh) / 2, split = top + bh * 0.42f, seam = fmaxf(1.5f, bw * 0.06f);
+    rrect(c, cx - bw / 2, top, cx + bw / 2, top + bh, bw * 0.48f, FILL);
+    rrect(c, cx - bw / 2, split - seam / 2, cx + bw / 2, split + seam / 2, 0, CUT);
+    rrect(c, cx - seam / 2, top, cx + seam / 2, split, 0, CUT);
+    float in = seam * 1.6f, ww = bw * 0.2f;
+    switch (code) {
+    case BIND_MOUSE_LEFT: rrect(c, cx - bw / 2 + in, top + in, cx - seam, split - seam, bw * 0.3f, CUT); break;
+    case BIND_MOUSE_RIGHT: rrect(c, cx + seam, top + in, cx + bw / 2 - in, split - seam, bw * 0.3f, CUT); break;
+    case BIND_MOUSE_MIDDLE: case BIND_WHEEL_UP: case BIND_WHEEL_DOWN:
+        rrect(c, cx - ww / 2, top + bh * 0.08f, cx + ww / 2, top + bh * 0.36f, ww / 2, CUT);
+        if (code != BIND_MOUSE_MIDDLE) arrow(c, cx + bw / 2 + (x1 - cx - bw / 2) / 2, top + bh * 0.22f,
+                                             fminf((x1 - cx - bw / 2) * 0.4f, h * 0.14f), code == BIND_WHEEL_UP ? 0 : 1, FILL);
+        break;
+    default:  // (back / forward: the side buttons)
+        rrect(c, cx - bw / 2 + in * 0.6f, top + bh * (code == BIND_MOUSE_X1 ? 0.58f : 0.48f), cx - bw / 2 + in * 1.8f,
+              top + bh * (code == BIND_MOUSE_X1 ? 0.7f : 0.56f), seam, CUT);
     }
 }
 

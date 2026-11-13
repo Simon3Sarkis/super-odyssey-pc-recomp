@@ -46,6 +46,8 @@ static const OdysseyV141Sym ODYSSEY_V141_SYMS[] = {
     {"_ZN14GameDataHolder44readFromSaveDataBufferCommonFileOnlyLanguageEv", 0x70004dba00ull},
     {"_ZN14GameDataHolder11setLanguageEPKc", 0x70004db010ull},
     {"_ZN2al21getSaveDataWorkBufferEv", 0x700074b1d0ull},  // (the reader's first call)
+    // The mouse camera (runtime/hle/input.c): what ProjectCameraInput::calcInputStick (0x70000c1310) branches to
+    {"_ZN20PlayerCameraFunction19calcCameraMoveInputEPN4sead7Vector2IfEEPKN2al9LiveActorE", 0x70005172b0ull},
 };
 
 // Addresses the runtime uses directly for 1.0.0, and their 1.4.1 counterparts

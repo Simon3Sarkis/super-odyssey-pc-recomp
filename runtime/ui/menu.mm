@@ -210,6 +210,16 @@ static void sync_mouse_cursor(bool ui_active) {
     }
     g_draw_mouse_cursor.store(draw_cursor);
     bool show = !focused || (ui_active && !draw_cursor);
+    static int log_cursor = -1;
+    if (log_cursor < 0) log_cursor = getenv("ODYSSEY_LOG_CURSOR") != NULL;
+    static int last = -1;
+    int state = (mouse_window != NULL) | focused << 1 | draw_cursor << 2 | show << 3 | ui_active << 4 |
+                (mouse_window && SDL_GetWindowRelativeMouseMode(mouse_window)) << 5;
+    if (log_cursor && state != last) {
+        LOG("[cursor] mouse focus %d, focused %d, drawn %d, system %d, ui %d, relative %d\n", mouse_window != NULL, focused,
+            draw_cursor, show, ui_active, mouse_window ? SDL_GetWindowRelativeMouseMode(mouse_window) : -1);
+        last = state;
+    }
     if (show == SDL_CursorVisible()) return;
     if (show) SDL_ShowCursor();
     else SDL_HideCursor();
@@ -1521,6 +1531,9 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
     if (fabsf(style_scale - scale) > 0.01f) {
         ImGui::GetStyle() = base;
         ImGui::GetStyle().ScaleAllSizes(scale);
+        // (ScaleAllSizes rounds the pointer's scale down to a whole number: 0 below a 1.5x scale, so on a 1080p or
+        // 1440p screen the menu's pointer was drawn at size 0 - #5, #11. Its size follows the screen, never below 1.)
+        ImGui::GetStyle().MouseCursorScale = fmaxf(1.0f, scale / 0.68f);
         style_scale = scale;
     }
 #ifdef __APPLE__

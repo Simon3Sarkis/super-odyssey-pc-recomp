@@ -21,6 +21,7 @@
 #include "../interp.h"
 #include "../rqueue.h"
 #include "../renderer.h"
+#include "../linear_texture.h"
 #include "../../romfs_read.h"
 #include "../../settings.h"
 #include "../../ui/performance.h"
@@ -6547,6 +6548,58 @@ static void debug_draw(Prog *pr, CmdRec *r, bool indexed) {
     }
 }
 
+typedef struct { NvnTexture *tex; uint64_t id, addr, size; } PaintShared;
+static PaintShared *paint_shared;
+static size_t paint_shared_count, paint_shared_capacity;
+static uint64_t paint_cpu_epoch;
+
+static bool paint_register_shared(NvnTexture *t, uint64_t span) {
+    size_t slot = paint_shared_count;
+    for (size_t i = 0; i < paint_shared_count; i++) {
+        if (paint_shared[i].tex == t && paint_shared[i].id == t->debug_id) return true;
+        if (!paint_shared[i].tex->backend || paint_shared[i].tex->live <= 0) slot = i;
+    }
+    if (slot == paint_shared_count) {
+        if (paint_shared_count == paint_shared_capacity) {
+            size_t capacity = paint_shared_capacity ? paint_shared_capacity * 2 : 16;
+            void *p = realloc(paint_shared, capacity * sizeof *paint_shared);
+            if (!p) return false;
+            paint_shared = p; paint_shared_capacity = capacity;
+        }
+        paint_shared_count++;
+    }
+    paint_shared[slot] = (PaintShared){t, t->debug_id, t->addr, span};
+    return true;
+}
+
+static bool paint_write_overlaps(const PaintShared *p, uint64_t addr, uint64_t size) {
+    return p->tex->backend && p->tex->live > 0 && p->tex->debug_id == p->id &&
+        (addr >= p->addr ? addr - p->addr < p->size : p->addr - addr < size);
+}
+
+// Only textures fully synchronized for PaintObj's verified CPU filter qualify.
+// An explicit game CPU flush then hands those bytes back to the GPU uploader.
+void renderer_paint_cpu_written(uint64_t addr, uint64_t size) {
+    if (!size) return;
+    bool any = false;
+    for (size_t i = 0; i < paint_shared_count; i++) any |= paint_write_overlaps(&paint_shared[i], addr, size);
+    if (!any) return;
+    vk_end_pass();
+    wait_why = "paint CPU edits";
+    renderer_flush();
+    for (size_t i = 0; i < paint_shared_count; i++) if (paint_write_overlaps(&paint_shared[i], addr, size)) {
+        TexBackend *b = paint_shared[i].tex->backend;
+        b->gpu_owned = false; b->dynamic = true; b->uploaded = false;
+        b->paint_cpu_pending = true;
+        b->checked_frame = UINT64_MAX;
+    }
+    paint_cpu_epoch++;
+    vk_view_gen++;
+    st.rt_dirty = true;
+    static unsigned count;
+    if (++count <= 4) LOG("[paint-sync] CPU edits flushed at %llx +%llu\n", (unsigned long long)addr, (unsigned long long)size);
+}
+
 // Experimental CPU feedback: read only the resource and texel explicitly requested
 // by the game. Stage on the render thread; never DMA into the live guest heap.
 void renderer_cpu_texel(RqCpuTexel *q) {
@@ -6560,14 +6613,18 @@ void renderer_cpu_texel(RqCpuTexel *q) {
         b->guest_format ||
         b->width != t->width || b->height != t->height || b->layers != 1 || b->depth != 1 || b->samples != 1 ||
         q->x >= b->width || q->y >= b->height || b->width > 1024 || b->height > 1024) return;
-    typedef struct { uint64_t id, frame, size; uint8_t *bytes; } Cache;
+    uint64_t row_bytes = (uint64_t)b->width * fi->bpb;
+    if (q->snapshot && (bytes != 4 || !nvn_flags_linear(t->flags) || q->guest_pitch != t->stride ||
+        !nvn_linear_rows_fit(q->guest_capacity, q->guest_pitch, row_bytes, b->height) ||
+        !nvn_linear_rows_fit(q->snapshot_capacity, row_bytes, row_bytes, b->height))) return;
+    typedef struct { uint64_t id, frame, size, epoch; uint8_t *bytes; } Cache;
     static Cache cache[8];
     static unsigned next;
     Cache *e = NULL;
     for (int i = 0; i < 8; i++) if (cache[i].id == t->debug_id) { e = &cache[i]; break; }
     if (!e) { e = &cache[next++ % 8]; e->id = t->debug_id; e->frame = UINT64_MAX; }
     uint64_t frame = renderer_present_count(), size = (uint64_t)b->width * b->height * fi->bpb;
-    if (e->frame != frame || e->size != size) {
+    if (q->refresh_snapshot || e->frame != frame || e->size != size || (bytes == 4 && e->epoch != paint_cpu_epoch)) {
         vk_end_pass();
         st.rt_dirty = true;
         VkCommandBuffer cb = vk_cmd();
@@ -6582,6 +6639,13 @@ void renderer_cpu_texel(RqCpuTexel *q) {
         if (!e->bytes) { e->size = 0; return; }
         memcpy(e->bytes, out.ptr, size);
         e->frame = frame;
+        e->epoch = paint_cpu_epoch;
+    }
+    if (q->snapshot) {
+        uint64_t span = q->guest_pitch * (b->height - 1) + row_bytes;
+        if (!paint_register_shared(t, span)) return;
+        memcpy(q->snapshot, e->bytes, size);
+        q->snapshot_width = b->width; q->snapshot_height = b->height;
     }
     memcpy(&q->value, e->bytes + ((uint64_t)q->y * b->width + q->x) * fi->bpb + q->component * bytes, bytes);
     q->valid = true;

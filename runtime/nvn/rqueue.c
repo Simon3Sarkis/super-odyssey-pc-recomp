@@ -68,6 +68,10 @@ static void *render_thread(void *arg) {
         case RQ_ODYSSEY_POSE: odyssey_pose_render_frame(it.p); break;
 #ifndef __APPLE__
         case RQ_CPU_TEXEL: { extern void renderer_cpu_texel(RqCpuTexel *); renderer_cpu_texel(it.p); break; }
+        case RQ_PAINT_WRITE: {
+            extern void renderer_paint_cpu_written(uint64_t, uint64_t);
+            RqPaintWrite *w = it.p; renderer_paint_cpu_written(w->addr, w->size); break;
+        }
 #endif
 #ifdef _WIN32
         case RQ_DLSS_CAMERA: vk_dlss_set_camera(it.p); free(it.p); break;

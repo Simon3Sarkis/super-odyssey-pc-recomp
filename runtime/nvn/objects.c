@@ -8,6 +8,7 @@
 #include "interp.h"
 #include "rqueue.h"
 #include "nvn.h"
+#include "linear_texture.h"
 
 void renderer_sync(void);
 
@@ -233,6 +234,34 @@ static bool fog_f16_map_reader(uint64_t lr) {
     const Module *main = loader_module("main");
     return main && !memcmp(main->build_id, v100, sizeof v100);
 }
+
+static void paint_sync_rows(uint64_t td, bool refresh, unsigned reader) {
+    if (td < GUEST_LO || td >= GUEST_HI - 0x50) return;
+    uint64_t pool = G(uint64_t, td, 0), off = G(uint32_t, td, 8);
+    if (!pool) return;
+    NvnPool *p = HOST(NvnPool, pool);
+    if (!p || off >= p->size) return;
+    uint64_t capacity = p->size - off;
+    if (capacity > 4 * 1024 * 1024) capacity = 4 * 1024 * 1024;
+    void *snapshot = malloc(capacity);
+    RqCpuTexel q = {.addr = p->storage + off, .components = 1, .component_bytes = 4,
+        .snapshot = snapshot, .snapshot_capacity = capacity, .guest_capacity = p->size - off,
+        .guest_pitch = G(uint32_t, td, 0x4c), .refresh_snapshot = refresh};
+#ifndef __APPLE__
+    if (snapshot) {
+        if (rq_enabled()) rq_wait(rq_push(RQ_CPU_TEXEL, &q, 0));
+        else { extern void renderer_cpu_texel(RqCpuTexel *); renderer_cpu_texel(&q); }
+    }
+#endif
+    bool stored = q.valid && nvn_linear_store_rows((void *)(uintptr_t)q.addr, q.guest_capacity, q.guest_pitch,
+        snapshot, capacity, (uint64_t)q.snapshot_width * 4, q.snapshot_height);
+    if (stored) p->paint_cpu_shared = true;
+    static unsigned counts[4];
+    static const char *names[] = {"attack", "label mask", "label color", "median"};
+    if (reader < 4 && ++counts[reader] <= 4) LOG("[paint-sync] %s input %llx %ux%u pitch %llu synchronized %d\n",
+        names[reader], (unsigned long long)q.addr, q.snapshot_width, q.snapshot_height, (unsigned long long)q.guest_pitch, stored);
+    free(snapshot);
+}
 NVN(nvnMemoryPoolMap) {
     NvnPool *p = HOST(NvnPool, A(0));
     // The 1.0.0 RGBA8 reader calculates its row index after Map. The paint mask
@@ -244,6 +273,23 @@ NVN(nvnMemoryPoolMap) {
     }
     static int paint_trace = -1;
     if (paint_trace < 0) paint_trace = getenv("ODYSSEY_LOG_PAINT_READS") != NULL;
+    // These PaintObj loops bypass getColorFromLinearTexture. attackSensor
+    // samples a whole player footprint, rather than a single coordinate.
+    uint64_t paint_lr = c->x[30];
+    if (paint_feedback && (paint_lr == 0x70002dc49cull || paint_lr == 0x70002da5e0ull || paint_lr == 0x70002d99a0ull)) {
+        static const uint8_t v100[8] = {0x3c, 0xa1, 0x2d, 0xfa, 0xaf, 0x9c, 0x82, 0xda};
+        const Module *main = loader_module("main");
+        if (main && !memcmp(main->build_id, v100, sizeof v100)) {
+            if (paint_lr == 0x70002dc49cull) paint_sync_rows(c->x[22], true, 3);
+            else if (paint_lr == 0x70002da5e0ull) paint_sync_rows(c->x[21], false, 0);
+            else if (c->x[26] >= GUEST_LO && c->x[26] < GUEST_HI - 0x79b0) {
+                // Prepare both buffers before labeling changes either on the CPU.
+                // Do not overwrite CPU edits at its inner per-pixel Map calls.
+                paint_sync_rows(G(uint64_t, c->x[26], 0x79a8), true, 1);
+                paint_sync_rows(G(uint64_t, c->x[26], 0x7968), true, 2);
+            }
+        }
+    }
     if (c->x[30] == 0x7000a2b7ccull && (paint_trace || paint_feedback)) {
         static const uint8_t v100[8] = {0x3c, 0xa1, 0x2d, 0xfa, 0xaf, 0x9c, 0x82, 0xda};
         const Module *main = loader_module("main");
@@ -265,6 +311,7 @@ NVN(nvnMemoryPoolMap) {
             }
 #endif
             if (paint_feedback && q.valid) memcpy((void *)(uintptr_t)(p->storage + byte), &q.value, 4);
+            if (paint_feedback && count == 1) LOG("[paint-sync] texel readback enabled; first sample valid %d\n", q.valid);
             if (paint_trace && (count <= 64 || !(count % 2000)))
                 LOG("[paint-map] #%llu storage %llx size %llx offset %llx xy %u %u pitch %u byte %lld cpu %08x valid %d gpu %08x gpu-valid %d applied %d\n",
                     (unsigned long long)count, (unsigned long long)p->storage, (unsigned long long)p->size,
@@ -313,6 +360,13 @@ NVN(nvnMemoryPoolGetSize) { RET(HOST(NvnPool, A(0))->size); }
 NVN(nvnMemoryPoolGetFlags) { RET(HOST(NvnPool, A(0))->flags); }
 NVN(nvnMemoryPoolFlushMappedRange) {
     NvnPool *p = HOST(NvnPool, A(0));
+#ifndef __APPLE__
+    if (p->paint_cpu_shared && A(1) <= p->size && A(2) <= p->size - A(1)) {
+        RqPaintWrite w = {p->storage + A(1), A(2)};
+        if (rq_enabled() && !rq_on_thread()) rq_wait(rq_push(RQ_PAINT_WRITE, &w, 0));
+        else { extern void renderer_paint_cpu_written(uint64_t, uint64_t); renderer_paint_cpu_written(w.addr, w.size); }
+    }
+#endif
     backend_pool_written(p->storage + A(1), A(2));
 }
 NVN(nvnMemoryPoolInvalidateMappedRange) { (void)c; }
@@ -462,19 +516,24 @@ static void builder_layout(uint64_t b, TexLayout *t) {
     }
 }
 
-static bool is_linear(uint64_t b) { return (G(uint32_t, b, 8) & 0x10) || G(uint32_t, b, 0xC) == 10; }
+static bool is_linear(uint64_t b) { return nvn_flags_linear(G(uint32_t, b, 8)) || G(uint32_t, b, 0xC) == 10; }
+
+static uint64_t builder_pitch(uint64_t b, const TexLayout *t) {
+    uint64_t row = ((uint64_t)t->width + t->fmt->bw - 1) / t->fmt->bw * t->fmt->bpb;
+    return nvn_linear_pitch(G(uint32_t, b, 8), row, G(uint64_t, b, 0x30));
+}
 
 static uint64_t builder_storage_size(uint64_t b) {
     if (G(uint32_t, b, 0xC) == 10) {  // buffer texture
         return (uint64_t)G(uint32_t, b, 0x10) * nvn_format_info(G(uint32_t, b, 0x20))->bpb;
     }
-    if (is_linear(b)) return G(uint64_t, b, 0x30) * G(uint32_t, b, 0x14);
     TexLayout t = {0};
     builder_layout(b, &t);
+    if (is_linear(b)) return builder_pitch(b, &t) * t.height;
     return tegra_total_size(&t);
 }
 NVN(nvnTextureBuilderGetStorageSize) { RET(builder_storage_size(A(0))); }
-NVN(nvnTextureBuilderGetStorageAlignment) { RET(is_linear(A(0)) ? 32 : 512); }
+NVN(nvnTextureBuilderGetStorageAlignment) { RET(is_linear(A(0)) ? nvn_linear_alignment(G(uint32_t, A(0), 8)) : 512); }
 
 static NvnTexture *texture_from_builder(uint64_t b) {
     NvnTexture *t = calloc(1, sizeof *t);
@@ -494,6 +553,7 @@ static NvnTexture *texture_from_builder(uint64_t b) {
     t->pool_offset = G(uint64_t, b, 0x40);
     t->addr = t->pool ? t->pool->storage + t->pool_offset : 0;
     builder_layout(b, &t->layout);
+    if (nvn_flags_linear(t->flags)) t->stride = builder_pitch(b, &t->layout);
     t->debug_id = next_debug_id++;
     return t;
 }
@@ -716,7 +776,7 @@ NVN(nvnTextureGetStride) { RET(TEX->stride); }
 NVN(nvnTextureGetTextureAddress) { RET(TEX->addr); }
 NVN(nvnTextureGetMemoryPool) { RET(0); }
 NVN(nvnTextureGetMemoryOffset) { RET(TEX->pool_offset); }
-NVN(nvnTextureGetStorageSize) { RET(tegra_total_size(&TEX->layout)); }
+NVN(nvnTextureGetStorageSize) { RET(nvn_flags_linear(TEX->flags) ? TEX->stride * TEX->height : tegra_total_size(&TEX->layout)); }
 NVN(nvnTextureGetDebugID) { RET(TEX->debug_id); }
 NVN(nvnTextureGetViewOffset) { RET(0); }
 NVN(nvnTextureGetStorageClass) { RET(0); }

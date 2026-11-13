@@ -29,10 +29,14 @@ build-ID gated alongside 1.4.1; both register layouts were checked against the
 owner's extracted files. Private stock-60-FPS runs passed on both versions.
 See FOG-READBACK.md.
 
-Next manual test: the opt-in 1.0.0 poison collision readback candidate. A private
+Next manual test: revision 2 of the opt-in 1.0.0 poison collision readback candidate. A private
 Spewart run with the reporter's save found stale CPU mask bytes compared with
 the rendered image. Candidate and 1.4.1 fog regression runs passed, but cleaned
 ground, real poison damage and fight completion still need interaction testing.
+Simon reported the first candidate still failed. Revision 2 also covers the
+direct footprint reader, labeling buffers, CPU-edit uploads and 0x40 linear
+render-target layout. The 4K clean-ground control kept 3 HP; entering visible
+poison produced a poison reaction and 2 HP. Manual fight confirmation is pending.
 See POISON-READBACK.md. This does not close issue #3 or enable the feature in
 normal launches.
 

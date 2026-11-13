@@ -27,6 +27,10 @@ enum { FPS_60 = 0, FPS_90 = 1, FPS_120 = 2, FPS_COUNT };
 // at the sides (runtime/hle/odyssey_wide.c)
 enum { ASPECT_16_9 = 0, ASPECT_FILL = 1 };
 // Button prompts: Auto follows the device used last (keyboard / mouse or controller)
+// Memory use: Normal builds the shaders of what a stage sets up ahead (fewer stutters, ~3 GB more with NVIDIA's driver),
+// Low builds each at its first draw; Auto is Low on a PC with less than 12 GB of RAM
+enum { MEMORY_AUTO = 0, MEMORY_NORMAL, MEMORY_LOW, MEMORY_COUNT };
+bool settings_low_memory(void);
 // (Controller: the connected controller's own - Xbox, PlayStation, or the game's; the others always those)
 enum { PROMPTS_AUTO = 0, PROMPTS_CONTROLLER = 1, PROMPTS_KEYBOARD = 2, PROMPTS_SWITCH, PROMPTS_XBOX, PROMPTS_PLAYSTATION,
        PROMPTS_COUNT };
@@ -64,6 +68,7 @@ typedef struct {
     int aniso;           // ANISO_GAME or 2, 4, 8, 16: the most anisotropic filtering of filtered, mipmapped textures that
                          // tile (nvn/vulkan/textures.c vk_sampler; read at start)
     int frame_rate;      // FPS_*: the game's draws per second (gameplay stays at 60)
+    int memory;          // MEMORY_*: how much memory the renderer may use to spare stutters (settings_low_memory)
     bool shader_preload; // a stage's shaders get their libraries when the stage sets them up, not at their first draw
                          // (nvn/vulkan/exec.c compile_program; more memory)
     bool shader_wait;    // a draw whose shader is still loading waits for it (a hitch) instead of being left out /

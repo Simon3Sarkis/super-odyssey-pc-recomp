@@ -1901,6 +1901,39 @@ static void prog_failed(Prog *p) {
     atomic_store(&p->state, 2);
 }
 
+// A program's shader modules, made when its libraries or pipelines are built - not when it is set up. The game sets
+// up ~15,000 programs ahead (every material of every model a stage loads, every shader of an effect archive), most
+// never drawn; their modules alone held ~4.7 GB in the NVIDIA driver (2026-11-13, Cascade: 11.2 GB in RAM with them
+// made at set-up, 6.5 GB without setting programs up at all). The SPIR-V is in the cache on disk (cache/spirv), read
+// back here; if a write to it ever failed, modules are made at set-up as before. ODYSSEY_EAGER_MODULES=1: as before.
+extern _Atomic bool vk_spirv_cache_failed;
+static pthread_mutex_t prog_mod_lock = PTHREAD_MUTEX_INITIALIZER;
+static bool prog_modules(Prog *p) {
+    pthread_mutex_lock(&prog_mod_lock);
+    if ((!p->vs || !p->fs) && p->spv_key[0] && p->spv_key[1]) {
+        size_t nv = 0, nf = 0;
+        uint32_t *sv = vk_spirv_by_key(p->spv_key[0], &nv), *sf = sv ? vk_spirv_by_key(p->spv_key[1], &nf) : NULL;
+        if (sv && sf) {
+            if (!p->vs) p->vs = vk_module(sv, nv);
+            if (!p->fs) p->fs = vk_module(sf, nf);
+        } else {
+            static int n;
+            if (n++ < 10) LOG("[shader] SPIR-V of vs=%llx fs=%llx not in the cache any more: program unavailable\n",
+                              (unsigned long long)p->code[0], (unsigned long long)p->code[1]);
+        }
+        free(sv);
+        free(sf);
+    }
+    bool ok = p->vs && p->fs;
+    pthread_mutex_unlock(&prog_mod_lock);
+    return ok;
+}
+static bool lazy_modules(void) {
+    static int eager = -1;
+    if (eager < 0) eager = getenv("ODYSSEY_EAGER_MODULES") || getenv("ODYSSEY_VK_NO_SPIRV_CACHE") || getenv("ODYSSEY_SHADER_SALT");
+    return !eager && !atomic_load(&vk_spirv_cache_failed);
+}
+
 static bool preload_room(void);
 static void compile_program(void *arg) {
     Prog *p = arg;
@@ -1919,13 +1952,16 @@ static void compile_program(void *arg) {
     if (!sv || !sf) { free(sv); free(sf); prog_failed(p); return; }
     p->nbinds = vk_reflect(sv, nv, p->binds, MAX_BIND);
     p->nbinds += vk_reflect(sf, nf, p->binds + p->nbinds, MAX_BIND - p->nbinds);
-    p->vs = vk_module(sv, nv);
-    p->fs = vk_module(sf, nf);
+    bool lazy = lazy_modules();
+    if (!lazy) {
+        p->vs = vk_module(sv, nv);
+        p->fs = vk_module(sf, nf);
+    }
     free(sv);
     free(sf);
     p->layout = make_layout(p, 2, VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT);
     atomic_fetch_add(&stat_compiles, 1);
-    if (!p->vs || !p->fs) { prog_failed(p); return; }
+    if (!lazy && (!p->vs || !p->fs)) { prog_failed(p); return; }
     if (p->huge) {
         static int n;
         if (n++ < 8) LOG("[shader] huge program vs=%llx fs=%llx (SPIR-V %zu + %zu KB): compiled unoptimized when drawn\n",
@@ -1933,12 +1969,13 @@ static void compile_program(void *arg) {
     }
     // Set up ahead and no draw waits for it: the libraries (the driver's compile) wait for its first draw. NVIDIA keeps
     // ~17 MB per pair of libraries never linked, and also when they are destroyed (2026-10-27, driver 610.88): ~800
-    // programs set up ahead in a stage load, half of them drawn, cost +5 GB. Translation, SPIR-V and modules are cheap.
+    // programs set up ahead in a stage load, half of them drawn, cost +5 GB. Translation and SPIR-V are cheap; the modules
+    // aren't (prog_modules: made at the first build).
     static int huge_ahead = -1;  // (ODYSSEY_HUGE_AHEAD=1, tests: built ahead anyway, to time its compile)
     if (huge_ahead < 0) huge_ahead = getenv("ODYSSEY_HUGE_AHEAD") != NULL;
     // (menu, Video: Preload area shaders - the libraries of everything a stage sets up, right away: from the saved
     // binaries a few ms each on the low-priority workers, so nothing is left to load at a first draw)
-    bool preload = g_settings.shader_preload && !g_vk.headless && preload_room();
+    bool preload = g_settings.shader_preload && !settings_low_memory() && !g_vk.headless && preload_room();
     if (g_vk.gpl && p->ahead && ((!atomic_load(&p->urgent) && !preload) || (p->huge && !p->drawn && !huge_ahead))) {
         atomic_store(&p->step, PSTEP_LIBS);
         return;
@@ -2288,6 +2325,9 @@ void renderer_program_hint(NvnProgram *np, bool bulk) {
     if (on < 0) { const char *e = getenv("ODYSSEY_PREWARM"); on = e ? atoi(e) : 1; }
     if (known_whole < 0) { const char *e = getenv("ODYSSEY_PREWARM_KNOWN"); known_whole = e ? atoi(e) != 0 : 1; }
     if (!on || !g_vk.dev || (np->stage_mask & 3) != 3) return;
+    // Low memory (settings: Memory use): nothing set up ahead - each program is translated and built at its first draw
+    // (from the driver's cache when it has it: a few ms; 6.5 GB in RAM instead of 9.4, Cascade, NVIDIA)
+    if (settings_low_memory() && !getenv("ODYSSEY_PREWARM")) return;
     bool warm = false;
     bool known = drawn_has(prog_code_hash(np->stages[0].code_addr, np->stages[0].const_offset ? np->stages[0].const_offset : 0x10000,
                                           np->stages[1].code_addr, np->stages[1].const_offset ? np->stages[1].const_offset : 0x10000),
@@ -2625,6 +2665,7 @@ static VkPrimitiveTopology topo_class_base(uint8_t c) {
 static void build_pipeline(void *arg) {
     Pipe *pp = arg;
     PipeKey *k = &pp->k;
+    prog_modules(k->prog);  // (made here when its set-up didn't: a null module fails this pipeline as any error does)
     VkPipelineShaderStageCreateInfo stages[2] = {
         {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = k->prog->vs, .pName = "main"},
         {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = k->prog->fs, .pName = "main"}};
@@ -3048,6 +3089,7 @@ static void pbin_migrate(Prog *p, bool frag, bool fill) {
 // cached_only: only if the driver has it compiled already (otherwise VK_NULL_HANDLE right away)
 bool g_pcache_had_data;  // (device.c) cache/vk_pipelines.bin had data at the start
 static VkPipeline shader_lib_make(Prog *p, bool frag, bool fill, bool cached_only, bool capture_only) {
+    if (!prog_modules(p)) return VK_NULL_HANDLE;
     VkPipelineShaderStageCreateInfo stage = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                                              .stage = frag ? VK_SHADER_STAGE_FRAGMENT_BIT : VK_SHADER_STAGE_VERTEX_BIT,
                                              .module = frag ? p->fs : p->vs, .pName = "main"};
@@ -4283,7 +4325,7 @@ static int prepare_recorded_pipelines(void) {
 
 void vk_pipeline_prewarm(bool build) {
     const char *e = getenv("ODYSSEY_PIPELINE_PREWARM");
-    pipe_prewarm_enabled = !e || atoi(e) != 0;
+    pipe_prewarm_enabled = e ? atoi(e) != 0 : !settings_low_memory();
     if (build) prewarm_post_pipelines();
     if (!pipe_prewarm_enabled) return;
     if (build) prewarm_prepared_compute();

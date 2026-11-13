@@ -68,6 +68,7 @@ static uint32_t *cache_load(uint64_t h, size_t *nwords) {
     return d;
 }
 
+_Atomic bool vk_spirv_cache_failed;  // a SPIR-V couldn't be written: what is stored can't be counted on (exec.c modules)
 static void cache_store(uint64_t h, const uint32_t *spv, size_t nwords) {
     static int made;
     if (!made) { made = 1; mkdir("cache", 0755); mkdir("cache/spirv", 0755); }
@@ -75,9 +76,10 @@ static void cache_store(uint64_t h, const uint32_t *spv, size_t nwords) {
     snprintf(path, sizeof path, "cache/spirv/%016llx.spv", (unsigned long long)h);
     snprintf(tmp, sizeof tmp, "%s.%llx", path, (unsigned long long)(uintptr_t)&made ^ (unsigned long long)(uintptr_t)spv);
     FILE *f = fopen(tmp, "wb");
-    if (!f) return;
+    if (!f) { vk_spirv_cache_failed = true; return; }
     bool ok = fwrite(spv, 4, nwords, f) == nwords;
-    fclose(f);
+    if (fclose(f) != 0) ok = false;
+    if (!ok) vk_spirv_cache_failed = true;
     if (!ok || rename(tmp, path) != 0) remove(tmp);  // (another thread may have stored it first)
 }
 

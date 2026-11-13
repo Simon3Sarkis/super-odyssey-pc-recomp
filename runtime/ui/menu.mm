@@ -721,6 +721,14 @@ static void tab_performance(void) {
                "Shows FPS, frame time, and available hardware information in the top right.");
 #ifndef __APPLE__  // (Vulkan: nvn/vulkan/device.c vk_prepare_before_start)
     opt_section("Shaders");
+    {
+        static const char *const mem[MEMORY_COUNT] = {"Auto", "Normal", "Low"};
+        opt_choice("Memory use", &g_settings.memory, mem, MEMORY_COUNT, MEMORY_AUTO,
+                   "Normal builds the shaders of everything an area loads ahead of time, for fewer stutters (about 9 GB of "
+                   "RAM with an NVIDIA GPU). Low builds each shader the first time it is drawn: a short stutter the first "
+                   "time, about 6.5 GB. Auto picks Low on a PC with less than 12 GB of RAM. The game itself needs about "
+                   "3.5 GB, so 4 GB of RAM is not enough. Takes effect at the next start.", false);
+    }
     opt_toggle("Preload area shaders", &g_settings.shader_preload, false,
                "Builds the shaders of everything an area loads right away, to reduce stalls and objects popping in. "
                "Uses a lot of memory (the graphics driver keeps them), so it stops at a quarter of your RAM or 8 GB. "

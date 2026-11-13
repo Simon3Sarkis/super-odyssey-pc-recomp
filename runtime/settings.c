@@ -209,6 +209,8 @@ void settings_load(void) {
             g_settings.aniso = n == 2 || n == 4 || n == 8 || n == 16 ? n : ANISO_GAME;  // ("game")
         }
         else if (!strcmp(key, "shader_preload")) g_settings.shader_preload = atoi(val) != 0;
+        else if (!strcmp(key, "memory"))
+            g_settings.memory = !strcmp(val, "normal") ? MEMORY_NORMAL : !strcmp(val, "low") ? MEMORY_LOW : MEMORY_AUTO;
         else if (!strcmp(key, "shader_wait")) g_settings.shader_wait = atoi(val) != 0;
         else if (!strcmp(key, "frame_rate")) g_settings.frame_rate = atoi(val) == 60 ? FPS_60 : atoi(val) == 90 ? FPS_90 : FPS_120;
         else if (!strcmp(key, "skip_intro")) g_settings.skip_intro = atoi(val) != 0;
@@ -264,6 +266,7 @@ void settings_save(void) {
     else fprintf(f, "aniso = game\n");
     fprintf(f, "frame_rate = %d\n", g_settings.frame_rate == FPS_60 ? 60 : g_settings.frame_rate == FPS_90 ? 90 : 120);
     fprintf(f, "shader_preload = %d\n", g_settings.shader_preload);
+    fprintf(f, "memory = %s\n", g_settings.memory == MEMORY_NORMAL ? "normal" : g_settings.memory == MEMORY_LOW ? "low" : "auto");
     fprintf(f, "shader_wait = %d\n", g_settings.shader_wait);
     fprintf(f, "skip_intro = %d\n", g_settings.skip_intro);
     fprintf(f, "warmup = %s\n", warmups[g_settings.warmup >= 0 && g_settings.warmup < WARMUP_COUNT ? g_settings.warmup : 0]);
@@ -289,4 +292,20 @@ void settings_save(void) {
     for (int i = 0; i < g_nmod_off; i++) fprintf(f, "mod_off = %s\n", g_mod_off[i]);
     bind_settings_save(f);
     fclose(f);
+}
+
+// Low memory: chosen, or Auto on a PC with less than 12 GB of RAM (an 8 GB laptop - its integrated GPU's memory is that
+// RAM too). ODYSSEY_LOW_MEMORY=1 / 0 decides for tests.
+bool settings_low_memory(void) {
+    const char *e = getenv("ODYSSEY_LOW_MEMORY");
+    if (e && *e) return atoi(e) != 0;
+    if (g_settings.memory != MEMORY_AUTO) return g_settings.memory == MEMORY_LOW;
+    static int low = -1;
+    if (low < 0) {
+        extern uint64_t plat_total_ram(void);
+        uint64_t ram = plat_total_ram();
+        low = ram && ram < (12ull << 30);
+        LOG("[settings] %llu MB of RAM: %s memory use\n", (unsigned long long)(ram >> 20), low ? "low" : "normal");
+    }
+    return low;
 }

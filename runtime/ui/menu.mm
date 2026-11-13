@@ -1349,11 +1349,9 @@ void menu_tabs_draw(float scale, ImFont *font, ImFont *font_big, bool, void (*pr
 
 // ---- the performance overlay: rows of a coloured label and up to three values, the frame time graph, then the
 // hardware's names, the upscaler and resolution, and Mario's position. Each part has its switch (Performance tab).
-#ifndef __APPLE__
+#ifdef _WIN32  // (the temporal upscalers are Windows only)
 extern "C" bool vk_temporal_enabled(void);
-#ifdef _WIN32
 extern "C" bool vk_fsr4_available(void);
-#endif
 #endif
 #define PERF_COLS 18.6f  // the overlay's width in font heights
 
@@ -1452,20 +1450,20 @@ static void draw_performance(void) {
     if (g_settings.overlay_render) {
         const char *up = g_settings.res_mode == RES_MATCH ? "Off" : g_settings.upscaler == UPSCALE_FSR1 ? "FSR 1" : "Bilinear";
         const char *aa = g_settings.antialias == AA_SMAA ? "SMAA" : "Off";
+#ifdef _WIN32
         char name[48];
         if (vk_temporal_enabled()) {
             static const char *const modes[DLSS_MODE_COUNT] = {"", "Native AA", "Quality", "Balanced", "Performance"};
             int backend = g_settings.temporal_backend, mode = *settings_temporal_mode();
             const char *tech = "DLSS";
-#ifdef _WIN32
             if (backend == TEMPORAL_XESS) tech = "XeSS";
             else if (backend == TEMPORAL_FSR4) tech = vk_fsr4_available() ? "FSR 4" : "FSR 3.1";
             else if (backend == TEMPORAL_FSR3) tech = "FSR 3.1";
-#endif
             if (mode < 0 || mode >= DLSS_MODE_COUNT) mode = 0;
             snprintf(name, sizeof name, "%s %s", tech, backend == TEMPORAL_DLSS && mode == DLSS_DLAA ? "DLAA" : modes[mode]);
             up = name, aa = "Temporal";
         }
+#endif
         ImGui::TextColored(dim, "Upscaler: %s | Anti-aliasing: %s", up, aa);
         if (s.render_w && s.out_w) ImGui::TextColored(dim, "%u x %u -> %u x %u", s.render_w, s.render_h, s.out_w, s.out_h);
     }

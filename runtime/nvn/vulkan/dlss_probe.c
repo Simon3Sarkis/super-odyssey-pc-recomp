@@ -238,6 +238,8 @@ static int timing_begin(VkCommandBuffer cb, uint64_t frame) {
 }
 
 void vk_dlss_set_camera(const DlssCamera *camera) {
+    static bool logged;
+    if (!logged && getenv("ODYSSEY_DLSS_HISTORY_TRACE")) { LOG("[dlss-history] first camera received\n"); logged = true; }
     dlss.camera = *camera;
     dlss.camera_ready = true;
 }
@@ -471,6 +473,20 @@ static VkImageView evaluate(VkCommandBuffer cb, const TexBackend *color, VkImage
     double direction = 0;
     for (int i = 8; i < 11; i++) direction += (double)dlss.scene.view[i] * dlss.previous.view[i];
     reset = reset || direction < 0.92 || !reprojection(matrix);
+    static int history_trace = -1;
+    static unsigned history_samples, history_resets, history_images, history_gaps;
+    if (history_trace < 0) history_trace = getenv("ODYSSEY_DLSS_HISTORY_TRACE") != NULL;
+    if (history_trace) {
+        history_samples++;
+        history_resets += reset;
+        history_images += dlss.history && dlss.source_depth != dlss.previous_depth;
+        history_gaps += dlss.history && dlss.last_eval + 1 != frame;
+        if (history_samples == 240) {
+            LOG("[dlss-history] %u evaluations: %u resets, %u depth-image changes, %u frame gaps\n",
+                history_samples, history_resets, history_images, history_gaps);
+            history_samples = history_resets = history_images = history_gaps = 0;
+        }
+    }
     if (reset) {
         memset(matrix, 0, sizeof matrix);
         for (int i = 0; i < 16; i += 5) matrix[i] = 1;
@@ -516,6 +532,13 @@ static VkImageView evaluate(VkCommandBuffer cb, const TexBackend *color, VkImage
 }
 
 static bool can_evaluate(const TexBackend *color, uint32_t ow, uint32_t oh, uint64_t frame) {
+    static uint64_t next_trace;
+    if (getenv("ODYSSEY_DLSS_HISTORY_TRACE") && frame >= next_trace) {
+        LOG("[dlss-state] frame %llu enabled %d camera %d scene %d scene-frame %llu colour %ux%u depth %ux%u output %ux%u\n",
+            (unsigned long long)frame, vk_dlss_enabled(), dlss.camera_ready, dlss.scene_ready, (unsigned long long)dlss.frame,
+            color->width, color->height, dlss.w, dlss.h, ow, oh);
+        next_trace = frame + 240;
+    }
     if (!vk_dlss_enabled() || !dlss.scene_ready || dlss.frame != frame ||
         (dlss.history && dlss.last_eval == frame) || color->width != dlss.w || color->height != dlss.h ||
         ow < dlss.w || oh < dlss.h || (mode_at_start != DLSS_DLAA && (ow == dlss.w || oh == dlss.h))) return false;

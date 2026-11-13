@@ -17,6 +17,7 @@ static const char *settings_file(void) {
     const char *e = getenv("ODYSSEY_SETTINGS");
     return e && *e ? e : "powermoon.ini";
 }
+const char *settings_current_file(void) { return settings_file(); }
 
 Settings g_settings = {
     .window_mode = WINDOWED,

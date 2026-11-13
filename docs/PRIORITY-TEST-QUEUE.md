@@ -16,7 +16,12 @@ stage change; the final GUI preview passed a Cap transition with its optional
 upscaler runtimes staged. Cap/Cascade comparisons flag localized animated
 fog/water/effect differences for review. The full 17-kingdom candidate comparison
 and interaction coverage are still pending; this is not a full-game graphics
-sign-off. Simon's private warp preview is ready for the next manual test.
+sign-off. Simon confirmed the private warp preview works perfectly.
+
+Next manual test: the crash-report preview. Export, error-popup copy and normal
+quit were exercised on Windows; native fixtures also verified early failures,
+bounded logs, safe file failures and recovery after process restart/log replacement.
+See CRASH-REPORTS.md. This does not fix the separate poison or Iris Xe crashes.
 
 A separate 120 FPS / 1280x720 hidden-window save-load test crashed before its
 warp (TextureDataEx::reset, access 0x20). The 60 FPS tour passed. Its cause and

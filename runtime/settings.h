@@ -130,6 +130,7 @@ static inline int *settings_temporal_cas_sharpness(void) {
 }
 
 void settings_load(void);
+const char *settings_current_file(void);
 void settings_save(void);
 // The battery saver's settings (lower internal resolution with FSR 1, no extra frames or SMAA): the Steam Deck's
 // defaults and a one-press preset in the menu (runtime/settings.c says what and why)

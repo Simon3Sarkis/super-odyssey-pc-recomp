@@ -28,6 +28,7 @@ extern "C" bool vk_imgui_backend_init(void);  // runtime/nvn/vulkan/imgui_glue.c
 extern "C" {
 #include "../hle.h"
 #include "../mods.h"
+#include "../diagnostics.h"
 #include "../settings.h"
 #include "../updater.h"
 #include "menu.h"
@@ -966,9 +967,30 @@ static void tab_updates(float scale) {
 }
 
 static void tab_quit(float scale) {
+    static char report[1200];
+    static char previous[1200];
+    static bool checked_previous;
+    static const char *result = "Create file";
+    auto copy_result = []() { int s = diagnostics_copy_status(); return s > 0 ? "Path copied" : s == 0 ? "Copy pending" : "Saved"; };
+    if (!strcmp(result, "Copy pending")) result = copy_result();
     opt_begin("##quit", scale);
     opt_section("Quit");
     if (opt_action("Quit to Desktop", "", "Closes " RT_APP_NAME " after confirmation.")) g_quit_prompt = true;
+    opt_section("Diagnostics");
+    if (opt_action("Copy crash report", result,
+                   "Creates one text file with the saved settings, log, hardware/driver and fault details. Copies its path to paste into the attachment file picker. Includes local paths; nothing is uploaded.")) {
+        settings_save();
+        if (diagnostics_write_report(report, sizeof report))
+            result = diagnostics_copy_path(report) ? copy_result() : "Saved";
+        else result = "Could not save";
+    }
+    if (report[0]) { opt_disable_next(); opt_action("Saved report", "", report); }
+    if (!checked_previous) { diagnostics_last_crash(previous, sizeof previous); checked_previous = true; }
+    if (previous[0] &&
+        opt_action("Copy last crash report", "", "Copies the saved crash report's path, including after restarting the game.")) {
+        if (diagnostics_last_crash(report, sizeof report)) result = diagnostics_copy_path(report) ? copy_result() : "Saved";
+        else { previous[0] = 0; result = "No saved crash"; }
+    }
     opt_end();
 }
 

@@ -19,6 +19,7 @@
 #include <unistd.h>
 
 #include "../mods.h"
+#include "../diagnostics.h"
 #include "../paths.h"
 #include "../platform.h"
 #include "../rt.h"
@@ -97,6 +98,7 @@ void plat_thread_realtime(uint64_t period_ns) {
 // (runtime/paths.h; rt_paths_init runs later, so the same rule is applied here). Processes started by this one (the
 // re-exec for a fresh address layout) append to the same log.
 static char g_log_path[1024];
+const char *plat_log_path(void) { return g_log_path; }
 
 static void log_to_file_without_terminal(void) {
     if (isatty(STDERR_FILENO)) return;
@@ -213,7 +215,7 @@ void plat_fatal_notice(void) {
     snprintf(text, sizeof text, "Super Odyssey PC Recomp stopped because of an error.%s\n\nDetails: %s",
              mods_applied() ? "\n\nMods are on. If this started with a new mod, move it out of the mods folder: mods made "
                               "for a later version of the game (1.3.0) can crash 1.0.0." : "", g_log_path);
-    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Super Odyssey PC Recomp", text, NULL);
+    diagnostics_fatal_dialog(text);
 }
 
 const char *rt_host_fn_name(uint64_t pc, uint64_t *offset);  // runtime/dispatch.c

@@ -14,6 +14,7 @@
 #include "../../odyssey_pose.h"
 #include "../../settings.h"
 #include "../../ui/menu.h"
+#include "../../diagnostics.h"
 #include "../../updater.h"
 #include "dlss_probe.h"
 #include "xess_sdk.h"
@@ -105,6 +106,15 @@ static void pick_device(void) {
     g_vk.phys = pd[best];
     free(pd);
     vkGetPhysicalDeviceProperties(g_vk.phys, &g_vk.props);
+    VkPhysicalDeviceDriverProperties driver = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
+    VkPhysicalDeviceProperties2 description = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &driver};
+    vkGetPhysicalDeviceProperties2(g_vk.phys, &description);
+    char info[1024];
+    snprintf(info, sizeof info, "%s; %s; %s; driver version %#x; vendor %#x device %#x; Vulkan %u.%u.%u",
+             g_vk.props.deviceName, driver.driverName, driver.driverInfo, g_vk.props.driverVersion,
+             g_vk.props.vendorID, g_vk.props.deviceID, VK_API_VERSION_MAJOR(g_vk.props.apiVersion),
+             VK_API_VERSION_MINOR(g_vk.props.apiVersion), VK_API_VERSION_PATCH(g_vk.props.apiVersion));
+    diagnostics_gpu(info);
     uint32_t nq = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(g_vk.phys, &nq, NULL);
     VkQueueFamilyProperties *qp = calloc(nq, sizeof *qp);

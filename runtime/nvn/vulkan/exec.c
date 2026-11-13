@@ -1455,6 +1455,51 @@ static void debug_probe_grid(void) {
 
 // Debug frames, ODYSSEY_PROBE=x,y[,target]: after every draw, one texel of that color target read back; a change is
 // logged with the draw's programs (which draw paints a broken spot).
+// Debug frames, ODYSSEY_PROBE_RG16F=1: after every draw into an RG16F colour target (format 0x11: the fluid surfaces'
+// wave maps), the whole target read back; its largest |value| per channel and where, and how many texels aren't 0
+static float dbg_h2f(uint16_t h) {
+    uint32_t s = (uint32_t)(h & 0x8000) << 16, e = (h >> 10) & 0x1F, m = h & 0x3FF, u;
+    if (!e) { float d = m * 5.9604644775390625e-8f; return s ? -d : d; }
+    u = e == 31 ? (s | 0x7F800000u | (m << 13)) : (s | ((e + 112) << 23) | (m << 13));
+    float f;
+    memcpy(&f, &u, 4);
+    return f;
+}
+static void debug_rg16f_max(void) {
+    static int on = -1;
+    if (on < 0) on = getenv("ODYSSEY_PROBE_RG16F") != NULL;
+    if (!on || !st.rt.ncolor || !st.rt.color[0] || st.rt.color[0]->format != 0x11 || !st.rt.color[0]->backend) return;
+    TexBackend *b = st.rt.color[0]->backend;
+    if ((b->aspect & ~VK_IMAGE_ASPECT_COLOR_BIT) || b->width > 1024 || b->height > 1024) return;
+    vk_end_pass();
+    st.rt_dirty = true;
+    VkCommandBuffer cb = vk_cmd();
+    vk_full_barrier(cb);
+    uint64_t n = (uint64_t)b->width * b->height;
+    VkSpan out = vk_readback(n * 4);
+    VkBufferImageCopy cp = {.bufferOffset = out.off, .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                            .imageExtent = {b->width, b->height, 1}};
+    vkCmdCopyImageToBuffer(cb, b->image, VK_IMAGE_LAYOUT_GENERAL, out.buf, 1, &cp);
+    renderer_flush();
+    const uint16_t *px = out.ptr;
+    float mx[2] = {0, 0};
+    uint64_t at[2] = {0, 0}, nonzero = 0;
+    for (uint64_t i = 0; i < n; i++)
+        for (int c = 0; c < 2; c++) {
+            float v = fabsf(dbg_h2f(px[i * 2 + c]));
+            if (v > mx[c]) mx[c] = v, at[c] = i;
+            if (c == 0 && (px[i * 2] | px[i * 2 + 1])) nonzero++;
+        }
+    LOG("[rg16f] flags %#x stride %llu addr %llx\n", st.rt.color[0]->flags, (unsigned long long)st.rt.color[0]->stride,
+        (unsigned long long)st.rt.color[0]->addr);
+    LOG("[rg16f] %ux%u %p after vs=%llx fs=%llx: max |r| %g (r %g g %g there) at (%llu,%llu), |g| %g at (%llu,%llu), %llu texels not 0\n",
+        b->width, b->height, (void *)st.rt.color[0], (unsigned long long)st.program->stages[0].code_addr,
+        (unsigned long long)st.program->stages[1].code_addr, mx[0], dbg_h2f(px[at[0] * 2]), dbg_h2f(px[at[0] * 2 + 1]),
+        (unsigned long long)(at[0] % b->width),
+        (unsigned long long)(at[0] / b->width), mx[1], (unsigned long long)(at[1] % b->width),
+        (unsigned long long)(at[1] / b->width), (unsigned long long)nonzero);
+}
+
 static void debug_probe(void) {
     static int px = -1, py, att, grid;
     if (px == -1) {
@@ -1492,11 +1537,15 @@ static int dbg_ncolor, dbg_draws;
 static void vk_end_pass_at(int line);
 void vk_end_pass(void) { vk_end_pass_at(0); }
 #define vk_end_pass() vk_end_pass_at(__LINE__)
+static NvnTexture *pass_lin[8];  // the open pass's linear colour targets (a pitch, in the guest heap): written back
+static int pass_nlin;
+static void linear_writeback(void);
 static void vk_end_pass_at(int line) {
     if (!in_pass) return;
     if (prof && line < 4096) prof_end_line[line]++;
     vkCmdEndRendering(vk_cmd());
     in_pass = false;
+    if (pass_nlin) linear_writeback();
     // (the pass's own attachments, from begin_pass: st.rt may already hold the next pass's targets; none while probing:
     // every draw ends its pass then)
     static int probing = -1;  // (ODYSSEY_DEBUG_NO_DUMPS=1: the log only, e.g. over many frames)
@@ -1559,7 +1608,7 @@ static void begin_pass(void) {
         pass_color[i] = VK_FORMAT_UNDEFINED;
         if (!t) continue;
         renderer_mark_gpu_owned(t);
-        if ((t->flags & 0x10) && log_linear()) {  // (a linear texture drawn into: the CPU may read it - PaintObj)
+        if (((t->flags & 0x10) || t->stride) && log_linear()) {  // (a linear texture drawn into: the CPU may read it - PaintObj)
             static int n;
             if (n++ < 200) LOG("[linear] draw into linear %p addr %llx %ux%u f%#x stride %llu (frame %llu)\n", (void *)t,
                                (unsigned long long)t->addr, t->width, t->height, t->format, (unsigned long long)t->stride,
@@ -1636,6 +1685,11 @@ static void begin_pass(void) {
     vk_checkpoint(cb, "pass %d color, %ux%u, depth %p", pass_ncolor, minw, minh, (void *)st.rt.depth);
     vkCmdBeginRendering(cb, &ri);
     ss_forget();  // (whatever ran between the passes may have set its own state)
+    pass_nlin = 0;
+    for (int i = 0; i < st.rt.ncolor && i < 8; i++) {
+        NvnTexture *t = st.rt.color[i];
+        if (t && t->stride && t->addr >= HEAP_BASE && t->addr < HEAP_BASE + HEAP_MAX) pass_lin[pass_nlin++] = t;
+    }
     if (g_debug_frame) {
         dbg_ncolor = st.rt.ncolor < 8 ? st.rt.ncolor : 8;
         for (int i = 0; i < dbg_ncolor; i++) dbg_color[i] = st.rt.color[i];
@@ -2069,11 +2123,23 @@ static void translate_program(void *arg) {
     }
     shader_time_log("translate vs+fs", p->code[1], t0);
     {   // ODYSSEY_LOG_GLSL=<code address, hex>: the GLSL a vertex or fragment shader at that address becomes
-        static uint64_t want = 1;
-        if (want == 1) { const char *e = getenv("ODYSSEY_LOG_GLSL"); want = e ? strtoull(e, NULL, 16) : 0; }
-        if (want && (p->code[0] == want || p->code[1] == want)) {
+        static uint64_t wants[8];
+        static int nwant = -1;
+        if (nwant < 0) {  // (several: comma separated)
+            nwant = 0;
+            const char *e = getenv("ODYSSEY_LOG_GLSL");
+            while (e && *e && nwant < 8) {
+                char *end;
+                wants[nwant++] = strtoull(e, &end, 16);
+                e = *end == ',' ? end + 1 : NULL;
+            }
+        }
+        for (int k = 0; k < nwant; k++) {
+            uint64_t want = wants[k];
+            if (!want || (p->code[0] != want && p->code[1] != want)) continue;
             const ShaderInfo *si = p->code[0] == want ? p->vi : p->fi;
             LOG("[glsl] %s %llx:\n%s\n", p->code[0] == want ? "vs" : "fs", (unsigned long long)want, si && si->msl ? si->msl : "(none)");
+            wants[k] = 0;  // (once)
         }
     }
     if (!p->vi->msl) {
@@ -4875,6 +4941,48 @@ static VkDescriptorBufferInfo gmem_info(void) {
     return (VkDescriptorBufferInfo){s.buf, s.off, sizeof zero};
 }
 
+// Linear render targets written back to guest memory: a texture with a pitch (agl's createAglTextureDataLinear) that
+// the GPU draws into is one the game reads on the CPU - al::getF32FromLinearTextureF16 / getColorFromLinearTexture:
+// the fog's surface height (al::OceanWave::calcPos -> OrthoDepthTexture::tryCalcDepth, the top-down depth under it;
+// the fluid surfaces' displacement), the poison's paint map (PaintObj). The GPU's result stayed in its image, so the CPU
+// read zeros: Cap Kingdom's fog surface came out 3000 units up (1600 instead of ~-1400), every ripple Mario or Cappy
+// made there was rejected as too far below it (OceanWave::tryAddRippleWithRange), and the fog never parted. Now each
+// pass's linear colour targets are copied, on the GPU, into their place in the imported guest heap after the pass:
+// the CPU sees them a frame later at most, as on the Switch (where the GPU writes that memory itself).
+// ODYSSEY_LINEAR_WRITEBACK=1: on. OFF by default: with it the game faults (access to 0xffffffffffffffff) a few
+// seconds into Cap Kingdom even with only R16F / RGBA16F targets written back; the fog height (calcPos) changed but
+// stayed wrong (~1500-1900 instead of near -1400). Work in progress (docs: fog-reference-review/claude-handoff.md).
+static void linear_writeback(void) {
+    static int on = -1;
+    if (on < 0) { const char *e = getenv("ODYSSEY_LINEAR_WRITEBACK"); on = e && atoi(e) != 0; }  // (opt-in until the crash below is understood)
+    int n = pass_nlin;
+    pass_nlin = 0;
+    if (!on || !gmem_buf) return;
+    VkCommandBuffer cb = VK_NULL_HANDLE;
+    for (int i = 0; i < n; i++) {
+        NvnTexture *t = pass_lin[i];
+        TexBackend *b = t ? (TexBackend *)t->backend : NULL;
+        const FormatInfo *fi = t ? t->layout.fmt : NULL;
+        // (only the formats the game's CPU readers take: F16 - R16F, RG16F, RGBA16F - and RGBA8. The R32F linear targets
+        // in Cap Kingdom are something else: written back, the game faulted on a -1 pointer)
+        if (t->format != 0x05 && t->format != 0x11 && t->format != 0x29 && t->format != 0x25) continue;
+        if (!b || !b->image || !fi || !fi->bpb || fi->bw != 1 || fi->bh != 1 || b->guest_format || b->width != t->width ||
+            b->height != t->height || (b->aspect & ~VK_IMAGE_ASPECT_COLOR_BIT) || t->stride % fi->bpb)
+            continue;
+        uint64_t off = t->addr - HEAP_BASE, size = t->stride * (uint64_t)t->height;
+        if (off + size > gmem_size || off % fi->bpb) continue;
+        if (!cb) { cb = vk_cmd(); vk_full_barrier(cb); }
+        VkBufferImageCopy c = {.bufferOffset = off, .bufferRowLength = (uint32_t)(t->stride / fi->bpb),
+                               .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, .imageExtent = {t->width, t->height, 1}};
+        vkCmdCopyImageToBuffer(cb, b->image, VK_IMAGE_LAYOUT_GENERAL, gmem_buf, 1, &c);
+        static int nlog;
+        if (nlog++ < 12)
+            LOG("[vk] linear render target %ux%u f%#x at %llx (pitch %llu) written back to guest memory\n", t->width, t->height,
+                t->format, (unsigned long long)t->addr, (unsigned long long)t->stride);
+    }
+    if (cb) vk_full_barrier(cb);
+}
+
 // Compute dispatches that use global memory: the imported heap is host memory across PCIe on a discrete GPU, and a
 // shader storing to it in a loop crawls (the little chain chomps in Madam MeowMeow's house: ~8 ms a frame on a GTX 1660
 // Super and on an RTX 3080 Ti alike, which the game then waits for on its fence - 49-53 fps there on the 1660). Before
@@ -6079,7 +6187,56 @@ static void draw_(CmdRec *r, bool indexed) {
     dbg_draws++;
     debug_raw_after();
     debug_tex_trace("draw");
-    if (g_debug_frame) { debug_probe(); debug_watch_max(); }
+    if (g_debug_frame) { debug_probe(); debug_watch_max(); debug_rg16f_max(); }
+    {   // ODYSSEY_MARK_RG16F=<x>,<y>,<w>,<h>,<value> (tests): after the fluid surface's final blend into its persistent
+        // height map (fs 72698eae00), that rectangle of it set to value - a marker whose hollow shows where the fog
+        // reads that texel
+        static int mark = -1;
+        static int mx, my, mw, mh;
+        static float mv;
+        if (mark < 0) {
+            const char *e = getenv("ODYSSEY_MARK_RG16F");
+            mark = e && sscanf(e, "%d,%d,%d,%d,%f", &mx, &my, &mw, &mh, &mv) == 5 && mw > 0 && mh > 0;
+        }
+        if (mark && st.program->stages[1].code_addr == 0x72698eae00ull && st.rt.ncolor && st.rt.color[0] &&
+            st.rt.color[0]->format == 0x11 && st.rt.color[0]->backend && st.rt.color[0]->width == 256) {
+            int x0 = mx < 0 ? 0 : mx, y0 = my < 0 ? 0 : my;
+            int x1 = mx + mw > 256 ? 256 : mx + mw, y1 = my + mh > 256 ? 256 : my + mh;
+            if (x1 > x0 && y1 > y0) {
+                vk_end_pass();
+                st.rt_dirty = true;
+                uint32_t w = (uint32_t)(x1 - x0), h = (uint32_t)(y1 - y0);
+                VkSpan s = vk_transient((uint64_t)w * h * 4, 16);
+                uint16_t hv;
+                { _Float16 f = (_Float16)mv; memcpy(&hv, &f, 2); }
+                uint16_t *px = s.ptr;
+                for (uint32_t i = 0; i < w * h * 2; i++) px[i] = hv;
+                VkCommandBuffer cb = vk_cmd();
+                vk_full_barrier(cb);
+                VkBufferImageCopy c = {.bufferOffset = s.off, .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                                       .imageOffset = {x0, y0, 0}, .imageExtent = {w, h, 1}};
+                vkCmdCopyBufferToImage(cb, s.buf, ((TexBackend *)st.rt.color[0]->backend)->image, VK_IMAGE_LAYOUT_GENERAL, 1, &c);
+                vk_full_barrier(cb);
+            }
+        }
+    }
+    {   // ODYSSEY_FILL_RG16F=<r>,<g> (tests): every 256x256 RG16F target filled with that value after each draw into it -
+        // does what samples it (Cap Kingdom's fog) change with it?
+        static int fill = -1;
+        static float fv[2];
+        if (fill < 0) { const char *e = getenv("ODYSSEY_FILL_RG16F"); fill = e && sscanf(e, "%f,%f", &fv[0], &fv[1]) == 2; }
+        if (fill && st.rt.ncolor && st.rt.color[0] && st.rt.color[0]->format == 0x11 && st.rt.color[0]->backend &&
+            st.rt.color[0]->width == 256 && st.rt.color[0]->height == 256) {
+            vk_end_pass();
+            st.rt_dirty = true;
+            VkCommandBuffer cb = vk_cmd();
+            vk_full_barrier(cb);
+            VkClearColorValue cv = {.float32 = {fv[0], fv[1], 0, 0}};
+            VkImageSubresourceRange rg = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            vkCmdClearColorImage(cb, ((TexBackend *)st.rt.color[0]->backend)->image, VK_IMAGE_LAYOUT_GENERAL, &cv, 1, &rg);
+            vk_full_barrier(cb);
+        }
+    }
     cum_draws++;
     if (g_gpuprof_frame && gp_n) {
         if (!gp_draws[gp_n - 1]) {  // first draw of the row: its fragment shader hash
@@ -6300,6 +6457,35 @@ static void debug_draw(Prog *pr, CmdRec *r, bool indexed) {
                 if (t->addr) nvn_log_overlapping_textures(t, t->addr, tegra_total_size(&t->layout));
             }
         }
+    }
+    {   // ODYSSEY_LOG_CB=<code address>[,...]: for a draw using that vertex or fragment shader, its constant buffers
+        // (each bound one's first 32 vec4, as floats) - a shader's transforms next to the data it reads
+        static uint64_t want[8];
+        static int nwant = -1;
+        if (nwant < 0) {
+            nwant = 0;
+            const char *e = getenv("ODYSSEY_LOG_CB");
+            while (e && *e && nwant < 8) { char *end; want[nwant++] = strtoull(e, &end, 16); e = *end == ',' ? end + 1 : NULL; }
+        }
+        for (int k = 0; k < nwant; k++) {
+            int stg = st.program->stages[0].code_addr == want[k] ? 0 : st.program->stages[1].code_addr == want[k] ? 1 : -1;
+            if (stg < 0) continue;
+            for (int cb = 0; cb < 18; cb++) {
+                uint64_t a = st.ubuf[stg][cb].addr, sz = st.ubuf[stg][cb].size;
+                if (!a || a < GUEST_LO || a >= GUEST_HI) continue;
+                const float *f = (const float *)(uintptr_t)a;
+                uint64_t nv = sz / 16 < 32 ? sz / 16 : 32;
+                for (uint64_t v = 0; v < nv; v++)
+                    LOG("[cb] %s cb%d[%llu] = %g %g %g %g\n", stg ? "fs" : "vs", cb + 3, (unsigned long long)v, f[v * 4], f[v * 4 + 1],
+                        f[v * 4 + 2], f[v * 4 + 3]);
+            }
+        }
+    }
+    for (int i = 0; i < pr->vi->ntex && i < 64; i++) {  // vertex textures (displacement maps): which, size, format
+        NvnTexture *t = shader_texture_object(0, &pr->vi->tex[i]);
+        if (!t) { LOG("[draw]   vtex%d: none\n", i); continue; }
+        LOG("[draw]   vtex%d: %p addr %llx %ux%u f%#x lv %u\n", i, (void *)t, (unsigned long long)t->addr, t->width, t->height,
+            t->format, t->layout.levels);
     }
     for (int i = 0; i < pr->fi->ntex && i < 64; i++) {  // fragment textures: guest size / format, allocation, scale
         NvnTexture *t = shader_texture_object(1, &pr->fi->tex[i]);

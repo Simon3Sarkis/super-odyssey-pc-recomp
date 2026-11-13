@@ -14,6 +14,7 @@
 
 #include "../hle.h"
 #include "../rt.h"
+#include "../nvn/nvn.h"
 
 // StageScene::mGameDataHolder (OdysseyDecomp StageScene.h; control() loads it): 0x2d0; 1.4.1: 0x2e0 (its control()
 // reads it there as 1.0.0 does at 0x2d0)
@@ -211,7 +212,88 @@ static void stage_scene_control(Cpu *c) {
     g_control(c);
 }
 
+// ---- ODYSSEY_LOG_LINREAD=1 (debug): al::getF32FromLinearTextureF16 / getColorFromLinearTexture - the CPU reading a
+// texel of a linear texture (the fluid surfaces' height, al::FluidSimulateWave::tryCalcHeight; the poison's paint map,
+// PaintObj::checkPaintAlpha). Each texture once: its memory (pool storage + offset), pitch, and which GPU textures
+// overlap that memory - what has to be written back for the CPU to see what the GPU drew.
+static GuestFn g_linread_f16, g_linread_color;
+static void linread_log(Cpu *c, const char *what) {
+    static uint64_t seen[64];
+    static int nseen;
+    uint64_t td = c->x[0];
+    if (!td) return;
+    for (int i = 0; i < nseen; i++) if (seen[i] == td) return;
+    if (nseen < 64) seen[nseen++] = td;
+    uint64_t pool = *(uint64_t *)(uintptr_t)td, off = *(uint32_t *)(uintptr_t)(td + 8);
+    uint32_t pitch = *(uint32_t *)(uintptr_t)(td + 0x4c);
+    uint64_t storage = pool ? HOST(NvnPool, pool)->storage : 0;
+    LOG("[linread] %s: TextureData %llx pool %llx storage %llx + %#llx = %llx, pitch %u (x %lld y %lld)\n", what,
+        (unsigned long long)td, (unsigned long long)pool, (unsigned long long)storage, (unsigned long long)off,
+        (unsigned long long)(storage + off), pitch, (long long)(int32_t)c->x[1], (long long)(int32_t)c->x[2]);
+    extern void nvn_log_overlapping_textures(const NvnTexture *self, uint64_t addr, uint64_t size);
+    if (storage) nvn_log_overlapping_textures(NULL, storage + off, (uint64_t)pitch * 256);
+}
+static void linread_f16(Cpu *c) { linread_log(c, "F32 from F16"); g_linread_f16(c); }
+static void linread_color(Cpu *c) { linread_log(c, "color"); g_linread_color(c); }
+static void linread_boot(void) {
+    static bool done;
+    if (done || !getenv("ODYSSEY_LOG_LINREAD")) return;
+    done = true;
+    bool v141 = loader_main_is_v141();
+    // (1.4.1: tools/match141.py - getF32FromLinearTextureF16 by call graph; getColorFromLinearTexture its neighbour,
+    // the best candidate)
+    uint64_t f16 = v141 ? 0x70007ac5f0ull : loader_find_symbol("_ZN2al26getF32FromLinearTextureF16EPKN3agl11TextureDataEiiii");
+    uint64_t col = v141 ? 0x70007ac560ull : loader_find_symbol("_ZN2al25getColorFromLinearTextureEPKN3agl11TextureDataEii");
+    if (f16 && (g_linread_f16 = dispatch_lookup(f16))) hle_override(f16, linread_f16, "linear texture read (log)");
+    if (col && (g_linread_color = dispatch_lookup(col))) hle_override(col, linread_color, "linear texture colour read (log)");
+    LOG("[linread] hooks %s %s\n", g_linread_f16 ? "f16" : "-", g_linread_color ? "color" : "-");
+}
+
+// ---- ODYSSEY_TRACE_CALLS=<addr>[,<addr>...] (debug, up to 8): each call of those game functions logged - caller (lr),
+// x0..x3, s0..s3, the three floats x1 points at (a position, when it is one), and w0 on return. The first 40 calls of
+// each, then every 200th.
+static uint64_t g_tc_addr[8];
+static GuestFn g_tc_orig[8];
+static uint64_t g_tc_n[8];
+static void tc_call(Cpu *c, int k) {
+    uint64_t n = ++g_tc_n[k], lr = c->x[30], x0 = c->x[0], x1 = c->x[1], x2 = c->x[2], x3 = c->x[3];
+    bool show = n <= 40 || !(n % 200);
+    float pos[3] = {0, 0, 0}, sv[4];
+    for (int i = 0; i < 4; i++) memcpy(&sv[i], &c->v[i], 4);
+    if (x1 >= GUEST_LO && x1 < GUEST_HI - 12) memcpy(pos, (const void *)(uintptr_t)x1, 12);
+    float in2[3] = {0, 0, 0}, out1[3] = {0, 0, 0};  // (x2's vec3 before; x1's after: an out parameter)
+    if (x2 >= GUEST_LO && x2 < GUEST_HI - 12) memcpy(in2, (const void *)(uintptr_t)x2, 12);
+    g_tc_orig[k](c);
+    if (x1 >= GUEST_LO && x1 < GUEST_HI - 12) memcpy(out1, (const void *)(uintptr_t)x1, 12);
+    float s0out;
+    memcpy(&s0out, &c->v[0], 4);
+    if (show)
+        LOG("[call] %llx #%llu lr %llx x0 %llx x1 %llx (%g %g %g -> %g %g %g) x2 %llx (%g %g %g) s0-3 %g %g %g %g -> w0 %u s0 %g\n",
+            (unsigned long long)g_tc_addr[k], (unsigned long long)n, (unsigned long long)lr, (unsigned long long)x0,
+            (unsigned long long)x1, pos[0], pos[1], pos[2], out1[0], out1[1], out1[2], (unsigned long long)x2, in2[0], in2[1],
+            in2[2], sv[0], sv[1], sv[2], sv[3], (unsigned)(c->x[0] & 0xFFFFFFFFu), s0out);
+}
+#define TC(k) static void tc_##k(Cpu *c) { tc_call(c, k); }
+TC(0) TC(1) TC(2) TC(3) TC(4) TC(5) TC(6) TC(7)
+static void (*const g_tc_fn[8])(Cpu *) = {tc_0, tc_1, tc_2, tc_3, tc_4, tc_5, tc_6, tc_7};
+static void trace_calls_boot(void) {
+    static bool done;
+    const char *e = getenv("ODYSSEY_TRACE_CALLS");
+    if (done || !e) return;
+    done = true;
+    for (int k = 0; k < 8 && e && *e; k++) {
+        char *end;
+        uint64_t a = strtoull(e, &end, 16);
+        e = *end == ',' ? end + 1 : NULL;
+        if (!a || !(g_tc_orig[k] = dispatch_lookup(a))) { LOG("[call] %llx: no function there\n", (unsigned long long)a); continue; }
+        g_tc_addr[k] = a;
+        hle_override(a, g_tc_fn[k], "call trace");
+    }
+}
+
 void odyssey_boot(void) {
+    linread_boot();
+    trace_calls_boot();
     const char *e = getenv("ODYSSEY_WARP");
     g_log = (e && *e) || getenv("ODYSSEY_LOG_STAGES");
     g_complete_at = getenv("ODYSSEY_SAVE_COMPLETE") ? strtoull(getenv("ODYSSEY_SAVE_COMPLETE"), NULL, 10) + 1 : 0;

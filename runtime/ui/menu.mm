@@ -809,8 +809,38 @@ static void tab_performance(void) {
     }
     opt_section("Overlay");
     opt_toggle("Show FPS", &g_settings.show_fps, false, "Shows the frame rate in the top right corner.");
-    opt_toggle("Advanced performance overlay", &g_settings.performance_overlay, false,
-               "Shows FPS, frame time, and available hardware information in the top right.");
+    opt_toggle("Performance overlay", &g_settings.performance_overlay, false,
+               "Shows the frame rate and frame times with a graph, GPU / CPU / memory use, temperatures and power where "
+               "your PC reports them, the upscaler and resolution, and Mario's position. Hidden while this menu is open. "
+               "Choose its parts below.");
+    {
+        static const char *const corners[OVERLAY_CORNER_COUNT] = {"Top right", "Top left", "Bottom right", "Bottom left"};
+        static const char *const sizes[3] = {"Small", "Medium", "Large"};
+        if (!g_settings.performance_overlay) opt_disable_next();
+        opt_choice("Overlay position", &g_settings.overlay_corner, corners, OVERLAY_CORNER_COUNT, OVERLAY_TOP_RIGHT,
+                   "The corner of the picture the performance overlay sits in.");
+        if (!g_settings.performance_overlay) opt_disable_next();
+        opt_choice("Overlay size", &g_settings.overlay_size, sizes, 3, 1, "The size of the performance overlay's text.");
+        float opacity = (float)g_settings.overlay_opacity;
+        if (!g_settings.performance_overlay) opt_disable_next();
+        if (opt_slider("Overlay background", &opacity, 0, 100, 10, 80, "%g%%",
+                       "How solid the overlay's background is. 0% shows only the text."))
+            g_settings.overlay_opacity = (int)(opacity + 0.5f);
+        struct { const char *label; bool *on; const char *help; } parts[] = {
+            {"Show GPU", &g_settings.overlay_gpu, "GPU use, temperature, power draw, video memory and clock speed. "
+             "Temperature, power and clock need an NVIDIA card, or Linux with an AMD or Intel one."},
+            {"Show CPU", &g_settings.overlay_cpu, "CPU use, the game's own share of it, and on Linux the CPU's temperature."},
+            {"Show memory", &g_settings.overlay_ram, "The PC's memory in use, and the game's own."},
+            {"Show frame time graph", &g_settings.overlay_graph, "A line of the last frames' times: flat when the game runs evenly, a spike at each hitch."},
+            {"Show hardware names", &g_settings.overlay_hardware, "The names of the graphics card and the processor."},
+            {"Show upscaler and resolution", &g_settings.overlay_render, "The upscaler and anti-aliasing in use, and the game's internal resolution next to its size on screen."},
+            {"Show Mario's position", &g_settings.overlay_position, "Mario's position in the kingdom, in metres. Useful for bug reports."},
+        };
+        for (auto &part : parts) {
+            if (!g_settings.performance_overlay) opt_disable_next();
+            opt_toggle(part.label, part.on, true, part.help);
+        }
+    }
 #ifndef __APPLE__  // (Vulkan: nvn/vulkan/device.c vk_prepare_before_start)
     opt_section("Shaders");
     {
@@ -1317,24 +1347,132 @@ void menu_tabs_draw(float scale, ImFont *font, ImFont *font_big, bool, void (*pr
     g_font = f0, g_font_big = f1;
 }
 
-static void draw_performance(void) {
-    float fps = ImGui::GetIO().Framerate;
-    if (fps > 0) ImGui::Text("%.0f FPS  |  %.2f ms/frame", fps, 1000.0f / fps);
-    else ImGui::TextUnformatted("Measuring frame time");
+// ---- the performance overlay: rows of a coloured label and up to three values, the frame time graph, then the
+// hardware's names, the upscaler and resolution, and Mario's position. Each part has its switch (Performance tab).
 #ifndef __APPLE__
-    VulkanOverlayStats stats = vk_overlay_stats();
-    ImGui::Separator();
-    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetFontSize() * 22);
-    if (stats.gpu_name && *stats.gpu_name) ImGui::TextUnformatted(stats.gpu_name);
-    if (stats.gpu_usage >= 0) ImGui::Text("GPU %d%%", stats.gpu_usage);
-    else ImGui::TextUnformatted("GPU usage unavailable");
-    if (stats.vram_budget_mib) {
-        ImGui::SameLine();
-        ImGui::Text("VRAM %.1f / %.1f GiB", stats.vram_mib / 1024.0, stats.vram_budget_mib / 1024.0);
+extern "C" bool vk_temporal_enabled(void);
+#ifdef _WIN32
+extern "C" bool vk_fsr4_available(void);
+#endif
+#endif
+#define PERF_COLS 18.6f  // the overlay's width in font heights
+
+static void perf_row(const char *label, ImVec4 color, const char *a, const char *b, const char *c) {
+    float em = ImGui::GetFontSize(), x0 = ImGui::GetCursorPosX();
+    ImGui::TextColored(color, "%s", label);
+    if (a) { ImGui::SameLine(x0 + em * 3.3f); ImGui::TextUnformatted(a); }
+    if (b) { ImGui::SameLine(x0 + em * 7.5f); ImGui::TextUnformatted(b); }
+    if (c) { ImGui::SameLine(x0 + em * 12.1f); ImGui::TextUnformatted(c); }
+}
+
+// "43%" / "40 C": the value with its unit, or "-" where this PC doesn't tell
+static const char *perf_num(char *buf, size_t n, int v, const char *unit) {
+    if (v < 0) return "-";
+    snprintf(buf, n, "%d%s", v, unit);
+    return buf;
+}
+
+static void draw_performance(void) {
+    const ImVec4 green(0.56f, 0.86f, 0.36f, 1), blue(0.36f, 0.66f, 0.92f, 1), pink(0.82f, 0.52f, 0.72f, 1), white(1, 1, 1, 1);
+    const ImVec4 dim(0.78f, 0.80f, 0.82f, 1);
+    char a[48], b[48], c[48];
+    float em = ImGui::GetFontSize();
+    // frame times of the last 180 presents
+    static float times[180];
+    static int at, filled;
+    float dt = ImGui::GetIO().DeltaTime * 1000.0f;
+    times[at] = dt, at = (at + 1) % 180;
+    if (filled < 180) filled++;
+    float worst = 0, sum = 0, recent = 0;
+    int n_recent = 0;
+    for (int i = 0; i < filled; i++) {
+        float t = times[(at - 1 - i + 360) % 180];
+        if (t > worst) worst = t;
+        sum += t;
+        if (recent < 500.0f) recent += t, n_recent++;  // (the average over the last half second)
     }
-    if (stats.cpu_name && *stats.cpu_name) ImGui::TextUnformatted(stats.cpu_name);
-    if (stats.cpu_usage >= 0) ImGui::Text("CPU %d%%", stats.cpu_usage);
+    float ms = n_recent ? recent / n_recent : 0;
+#ifndef __APPLE__
+    VulkanOverlayStats s = vk_overlay_stats();
+    if (g_settings.overlay_gpu) {
+        char t[16], w[16];
+        perf_row("GPU", green, perf_num(a, sizeof a, s.gpu_usage, "%"), perf_num(t, sizeof t, s.gpu_temp_c, " C"),
+                 perf_num(w, sizeof w, s.gpu_power_w, " W"));
+        if (s.vram_budget_mib) {
+            snprintf(a, sizeof a, "%.2f GB", s.vram_mib / 1024.0);
+            snprintf(b, sizeof b, "/ %.1f GB", s.vram_budget_mib / 1024.0);
+            perf_row("VRAM", green, a, b, s.gpu_clock_mhz > 0 ? perf_num(c, sizeof c, s.gpu_clock_mhz, " MHz") : NULL);
+        }
+    }
+    if (g_settings.overlay_cpu) {
+        char t[16];
+        if (s.game_cpu_usage >= 0) snprintf(c, sizeof c, "game %d%%", s.game_cpu_usage);
+        perf_row("CPU", blue, perf_num(a, sizeof a, s.cpu_usage, "%"), perf_num(t, sizeof t, s.cpu_temp_c, " C"),
+                 s.game_cpu_usage >= 0 ? c : NULL);
+    }
+    if (g_settings.overlay_ram && s.ram_total_mib) {
+        snprintf(a, sizeof a, "%.1f GB", s.ram_used_mib / 1024.0);
+        snprintf(b, sizeof b, "/ %.1f GB", s.ram_total_mib / 1024.0);
+        snprintf(c, sizeof c, "game %.1f GB", s.game_ram_mib / 1024.0);
+        perf_row("RAM", pink, a, b, s.game_ram_mib ? c : NULL);
+    }
+#endif
+    if (ms > 0) {
+        snprintf(a, sizeof a, "%.0f", 1000.0f / ms);
+        snprintf(b, sizeof b, "%.1f ms", ms);
+        snprintf(c, sizeof c, "max %.1f ms", worst);
+        perf_row("FPS", white, a, b, c);
+    } else perf_row("FPS", white, "-", NULL, NULL);
+    if (g_settings.overlay_graph) {
+        // the frame times as a line: flat when every frame takes as long, a spike at a hitch
+        ImGui::Dummy(ImVec2(0, em * 0.25f));
+        ImVec2 p = ImGui::GetCursorScreenPos(), size(em * PERF_COLS, em * 2.2f);
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(40, 44, 36, 190), em * 0.3f);
+        float top = filled ? sum / filled * 2.0f : 33.4f;
+        if (top < worst * 1.1f) top = worst * 1.1f;
+        if (top < 1) top = 1;
+        ImVec2 pts[180];
+        float pad = em * 0.6f;
+        for (int i = 0; i < filled; i++) {
+            float t = times[(at - filled + i + 360) % 180];
+            pts[i] = ImVec2(p.x + pad + (size.x - 2 * pad) * (filled > 1 ? (float)i / (filled - 1) : 0),
+                            p.y + size.y - pad * 0.5f - (size.y - pad) * (t / top));
+        }
+        if (filled > 1) dl->AddPolyline(pts, filled, IM_COL32(235, 235, 235, 230), 0, em * 0.07f < 1 ? 1 : em * 0.07f);
+        ImGui::Dummy(size);
+        ImGui::Dummy(ImVec2(0, em * 0.15f));
+    } else ImGui::Dummy(ImVec2(em * PERF_COLS, 0));  // (the overlay keeps its width)
+#ifndef __APPLE__
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + em * PERF_COLS);
+    if (g_settings.overlay_hardware) {
+        if (s.gpu_name && *s.gpu_name) ImGui::TextColored(dim, "%s", s.gpu_name);
+        if (s.cpu_name && *s.cpu_name) ImGui::TextColored(dim, "%s", s.cpu_name);
+    }
+    if (g_settings.overlay_render) {
+        const char *up = g_settings.res_mode == RES_MATCH ? "Off" : g_settings.upscaler == UPSCALE_FSR1 ? "FSR 1" : "Bilinear";
+        const char *aa = g_settings.antialias == AA_SMAA ? "SMAA" : "Off";
+        char name[48];
+        if (vk_temporal_enabled()) {
+            static const char *const modes[DLSS_MODE_COUNT] = {"", "Native AA", "Quality", "Balanced", "Performance"};
+            int backend = g_settings.temporal_backend, mode = *settings_temporal_mode();
+            const char *tech = "DLSS";
+#ifdef _WIN32
+            if (backend == TEMPORAL_XESS) tech = "XeSS";
+            else if (backend == TEMPORAL_FSR4) tech = vk_fsr4_available() ? "FSR 4" : "FSR 3.1";
+            else if (backend == TEMPORAL_FSR3) tech = "FSR 3.1";
+#endif
+            if (mode < 0 || mode >= DLSS_MODE_COUNT) mode = 0;
+            snprintf(name, sizeof name, "%s %s", tech, backend == TEMPORAL_DLSS && mode == DLSS_DLAA ? "DLAA" : modes[mode]);
+            up = name, aa = "Temporal";
+        }
+        ImGui::TextColored(dim, "Upscaler: %s | Anti-aliasing: %s", up, aa);
+        if (s.render_w && s.out_w) ImGui::TextColored(dim, "%u x %u -> %u x %u", s.render_w, s.render_h, s.out_w, s.out_h);
+    }
     ImGui::PopTextWrapPos();
+    float pos[3];
+    if (g_settings.overlay_position && odyssey_player_position(pos))  // (in metres: the game's units are centimetres)
+        ImGui::Text("X %.1f  Y %.1f  Z %.1f", pos[0] / 100.0f, pos[1] / 100.0f, pos[2] / 100.0f);
 #endif
 }
 #ifdef __APPLE__
@@ -1399,17 +1537,28 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
     } else if (menu_stats_visible() && (!open || !g_settings.performance_overlay)) {
         bool advanced = g_settings.performance_overlay;
         float margin = 16 * scale;
-        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - margin, margin),
-                                ImGuiCond_Always, ImVec2(1, 0));
-        ImGui::SetNextWindowBgAlpha(advanced ? 0.8f : 0.5f);
-        if (advanced) ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8 * scale, 3 * scale));
+        // the overlay's corner, size and background are the player's choice; the plain FPS counter stays top right
+        int corner = advanced ? g_settings.overlay_corner : OVERLAY_TOP_RIGHT;
+        bool right = corner == OVERLAY_TOP_RIGHT || corner == OVERLAY_BOTTOM_RIGHT;
+        bool bottom = corner == OVERLAY_BOTTOM_RIGHT || corner == OVERLAY_BOTTOM_LEFT;
+        static const float sizes[3] = {0.64f, 0.80f, 1.0f};
+        ImGui::SetNextWindowPos(ImVec2(right ? io.DisplaySize.x - margin : margin, bottom ? io.DisplaySize.y - margin : margin),
+                                ImGuiCond_Always, ImVec2(right ? 1 : 0, bottom ? 1 : 0));
+        ImGui::SetNextWindowBgAlpha(advanced ? g_settings.overlay_opacity * 0.01f : 0.5f);
+        if (advanced) {
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8 * scale, 3 * scale));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16 * scale, 12 * scale));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 12 * scale);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.04f, 0.07f, 0.08f, 1));
+        }
         ImGui::Begin("##fps", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
                                         ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
-        ImGui::SetWindowFontScale(advanced ? 0.64f : 1.0f);
+        ImGui::SetWindowFontScale(advanced ? sizes[g_settings.overlay_size >= 0 && g_settings.overlay_size <= 2 ? g_settings.overlay_size : 1] : 1.0f);
         if (advanced) draw_performance();
         else ImGui::Text("%.0f fps", io.Framerate);
         ImGui::End();
-        if (advanced) ImGui::PopStyleVar();
+        if (advanced) { ImGui::PopStyleColor(); ImGui::PopStyleVar(4); }
     }
 
     if (!setup) {  // a new release found at start: a note in the corner for a few seconds (the menu's Updates page has it)

@@ -25,6 +25,9 @@ Settings g_settings = {
     .reverb = true,
     .movie_audio = true,
     .show_fps = false,
+    .overlay_size = 1, .overlay_opacity = 80,
+    .overlay_gpu = true, .overlay_cpu = true, .overlay_ram = true, .overlay_graph = true, .overlay_hardware = true,
+    .overlay_render = true, .overlay_position = true,
 #ifdef __APPLE__
     .upscaler = UPSCALE_METALFX,
 #else
@@ -194,6 +197,16 @@ void settings_load(void) {
         else if (!strcmp(key, "movie_audio")) g_settings.movie_audio = atoi(val) != 0;
         else if (!strcmp(key, "show_fps")) g_settings.show_fps = atoi(val) != 0;
         else if (!strcmp(key, "performance_overlay")) g_settings.performance_overlay = atoi(val) != 0;
+        else if (!strcmp(key, "overlay_corner")) { int v = atoi(val); g_settings.overlay_corner = v >= 0 && v < OVERLAY_CORNER_COUNT ? v : 0; }
+        else if (!strcmp(key, "overlay_size")) { int v = atoi(val); g_settings.overlay_size = v >= 0 && v <= 2 ? v : 1; }
+        else if (!strcmp(key, "overlay_opacity")) { int v = atoi(val); g_settings.overlay_opacity = v < 0 ? 0 : v > 100 ? 100 : v; }
+        else if (!strcmp(key, "overlay_gpu")) g_settings.overlay_gpu = atoi(val) != 0;
+        else if (!strcmp(key, "overlay_cpu")) g_settings.overlay_cpu = atoi(val) != 0;
+        else if (!strcmp(key, "overlay_ram")) g_settings.overlay_ram = atoi(val) != 0;
+        else if (!strcmp(key, "overlay_graph")) g_settings.overlay_graph = atoi(val) != 0;
+        else if (!strcmp(key, "overlay_hardware")) g_settings.overlay_hardware = atoi(val) != 0;
+        else if (!strcmp(key, "overlay_render")) g_settings.overlay_render = atoi(val) != 0;
+        else if (!strcmp(key, "overlay_position")) g_settings.overlay_position = atoi(val) != 0;
         else if (!strcmp(key, "vibration")) g_settings.rumble = atoi(val) != 0;
         else if (!strcmp(key, "motion")) g_settings.motion = atoi(val) != 0;
         else if (!strcmp(key, "stick_deadzone")) g_settings.stick_deadzone = atoi(val) < 0 ? 0 : atoi(val) > 40 ? 40 : atoi(val);
@@ -290,6 +303,12 @@ void settings_save(void) {
     fprintf(f, "movie_audio = %d\n", g_settings.movie_audio);
     fprintf(f, "show_fps = %d\n", g_settings.show_fps);
     fprintf(f, "performance_overlay = %d\n", g_settings.performance_overlay);
+    fprintf(f, "overlay_corner = %d\noverlay_size = %d\noverlay_opacity = %d\n", g_settings.overlay_corner,
+            g_settings.overlay_size, g_settings.overlay_opacity);
+    fprintf(f, "overlay_gpu = %d\noverlay_cpu = %d\noverlay_ram = %d\noverlay_graph = %d\n", g_settings.overlay_gpu,
+            g_settings.overlay_cpu, g_settings.overlay_ram, g_settings.overlay_graph);
+    fprintf(f, "overlay_hardware = %d\noverlay_render = %d\noverlay_position = %d\n", g_settings.overlay_hardware,
+            g_settings.overlay_render, g_settings.overlay_position);
     fprintf(f, "vibration = %d\n", g_settings.rumble);
     fprintf(f, "motion = %d\n", g_settings.motion);
     fprintf(f, "stick_deadzone = %d\n", g_settings.stick_deadzone);

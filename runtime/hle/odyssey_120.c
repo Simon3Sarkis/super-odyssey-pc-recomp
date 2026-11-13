@@ -7,6 +7,7 @@
 // The hooks are always in; the menu switches between it and the stock 60 FPS loop while the game runs.
 // Keep the full framework update and draw path, including graphics housekeeping and the
 // HUD, and run GameSystem::movement at most once per two VI ticks.
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -285,11 +286,29 @@ static void proc_draw(Cpu *c) {
     draws = logic_ticks = controller_ticks = 0;
 }
 
+// Mario's position for the performance overlay (runtime/ui/menu.mm): al::LiveActor's pose keeper (+0x50), its
+// translation (+8), kept as the floats' bits
+static _Atomic uint32_t player_pos[3];
+static _Atomic uint64_t player_pos_ns;
+bool odyssey_player_position(float p[3]) {
+    uint64_t at = atomic_load(&player_pos_ns);
+    if (!at || plat_now_ns() - at > 500000000ull) return false;
+    for (int i = 0; i < 3; i++) { uint32_t v = atomic_load(&player_pos[i]); memcpy(&p[i], &v, 4); }
+    return true;
+}
+
 static void player_movement(Cpu *c) {
     static uint64_t updates;
     uint64_t actor = c->x[0];
     odyssey_pose_player(actor);
     original_movement(c);
+    if (actor >= GUEST_LO && actor < GUEST_HI - 0x58) {
+        uint64_t keeper = *(const uint64_t *)(uintptr_t)(actor + 0x50);
+        if (keeper >= GUEST_LO && keeper < GUEST_HI - 0x14) {
+            for (int i = 0; i < 3; i++) atomic_store(&player_pos[i], *(const uint32_t *)(uintptr_t)(keeper + 8 + 4 * i));
+            atomic_store(&player_pos_ns, plat_now_ns());
+        }
+    }
     // Private diagnostic placement, enabled only by an explicit test variable.
     // Keep it confined to the verified 1.0.0 pose layout.
     static bool placed;
@@ -411,8 +430,8 @@ void odyssey_native_120_boot(void) {
         else LOG("[native-120] kingdom flight draw hook unavailable\n");
     }
     if (trace) hle_override(draw, proc_draw, "Odyssey native draw trace");
-    if (original_movement && (trace || odyssey_pose_enabled() || getenv("ODYSSEY_TEST_PLAYER_POS")))
-        hle_override(movement, player_movement, "Odyssey player movement observation");
+    // (always: the performance overlay shows Mario's position)
+    if (original_movement) hle_override(movement, player_movement, "Odyssey player movement observation");
     installed = true;
     if (enabled) LOG("[native-120] %d Hz draws with 60 Hz gameplay\n", odyssey_native_hz());
     else LOG("[native-120] stock 60 FPS (switchable in the menu)\n");

@@ -22,6 +22,7 @@
 #include "vk.h"
 #include "../interp.h"
 #include "../output_scale.h"
+#include "../../ui/performance.h"
 #include "../renderer.h"
 
 VkG g_vk;
@@ -1227,6 +1228,8 @@ static bool frame_placement(float v[4], float pv[8]) {
 #endif
     float crop[4] = {0, 0, 1, 1};  // uv origin and size: all of it
     renderer_set_scale((float)os.sx, (float)os.sy);
+    vk_overlay_resolution((unsigned)(GAME_W * os.sx + 0.5), (unsigned)(GAME_H * os.sy + 0.5), (unsigned)(os.vw + 0.5),
+                          (unsigned)(os.vh + 0.5));  // (the performance overlay's "1600 x 900 -> 3840 x 2160")
     v[0] = (float)os.vx, v[1] = (float)os.vy, v[2] = (float)os.vw, v[3] = (float)os.vh;
     pv[0] = renderer_origin_lower_left() ? 1.0f : 0.0f;
     memcpy(pv + 4, crop, sizeof crop);

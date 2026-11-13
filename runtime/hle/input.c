@@ -309,7 +309,16 @@ static struct {
     int64_t sampling;
     uint64_t last_read_ns;
     MotionGate gate;
-} mot = {.dir = {1, 0, 0, 0, 1, 0, 0, 0, 1}};
+    MotionBias bias;
+} mot = {.dir = {1, 0, 0, 0, 1, 0, 0, 0, 1},
+         .gate.last = {[2] = -1, [9] = 1, [13] = 1, [17] = 1}};
+
+void input_motion_settle(void) {
+    pthread_mutex_lock(&motion_lock);
+    motion_gate_settle(&mot.gate, plat_now_ns());
+    mot.gyro_ns = 0;
+    pthread_mutex_unlock(&motion_lock);
+}
 
 static void motion_open(void) {
     bool a = false, g = false;
@@ -327,6 +336,8 @@ static void motion_open(void) {
     memcpy(mot.dir, id, sizeof id);
     mot.gyro_ns = 0;
     motion_gate_init(&mot.gate);
+    memset(&mot.bias, 0, sizeof mot.bias);
+    motion_gate_settle(&mot.gate, plat_now_ns());
     pthread_mutex_unlock(&motion_lock);
     if (pad) LOG("[input] motion: %s%s%s\n", a ? "accelerometer" : "", a && g ? " and " : "", g ? "gyro" : a ? "" : "none on this controller");
 }
@@ -366,11 +377,14 @@ static void motion_event(const SDL_GamepadSensorEvent *e) {
     } else if (e->sensor == SDL_SENSOR_GYRO) {
         float g[3] = {e->data[0], -e->data[2], e->data[1]};  // rad/s
         for (int i = 0; i < 3; i++) mot.gyro[i] = g[i] / TURN;
+        uint64_t host_now = plat_now_ns();
+        motion_bias_sample(&mot.bias, mot.accel, mot.gyro, host_now < mot.gate.settle_until_ns, host_now);
         uint64_t t = e->sensor_timestamp;
         bool integrate = g_settings.motion && !menu_input_captured() && !mot.gate.blocked &&
                          (!mot.gate.resume_ns || plat_now_ns() - mot.gate.resume_ns >= 250000000ull);
         if (integrate && mot.gyro_ns && t > mot.gyro_ns && t - mot.gyro_ns < 100000000ull) {
-            float dt = (float)(t - mot.gyro_ns) / 1e9f, w[3] = {g[0] * dt, g[1] * dt, g[2] * dt};
+            float dt = (float)(t - mot.gyro_ns) / 1e9f;
+            float w[3] = {mot.gyro[0] * TURN * dt, mot.gyro[1] * TURN * dt, mot.gyro[2] * TURN * dt};
             for (int i = 0; i < 3; i++) mot.angle[i] += mot.gyro[i] * dt;
             rotate_dir(mot.dir, w);
         }
@@ -402,6 +416,7 @@ HLE_FUNC("_ZN2nn3hid23GetSixAxisSensorHandlesEPNS0_19SixAxisSensorHandleEiRKjNS_
     c->x[0] = (uint64_t)n;
 }
 HLE_FUNC("_ZN2nn3hid18StartSixAxisSensorERKNS0_19SixAxisSensorHandleE", hid_sixaxis_start) {
+    input_motion_settle();
     static int nlog;
     if (nlog++ < 4) LOG("[input] six-axis sensor %#x started\n", *(uint32_t *)(uintptr_t)c->x[0]);
 }
@@ -416,6 +431,10 @@ HLE_FUNC("_ZN2nn3hid22GetSixAxisSensorStatesEPNS0_18SixAxisSensorStateEiRKNS0_19
     uint64_t now = plat_now_ns();
     pthread_mutex_lock(&motion_lock);
     bool live = mot.on && g_settings.motion && !menu_input_captured();
+    if (!mot.last_read_ns || (now > mot.last_read_ns && now - mot.last_read_ns > 500000000ull)) {
+        motion_gate_settle(&mot.gate, now);
+        mot.gyro_ns = 0;
+    }
     *(int64_t *)s = mot.last_read_ns && now > mot.last_read_ns ? (int64_t)(now - mot.last_read_ns) : 5000000;
     mot.last_read_ns = now;
     *(int64_t *)(s + 8) = ++mot.sampling;
@@ -431,7 +450,6 @@ HLE_FUNC("_ZN2nn3hid22GetSixAxisSensorStatesEPNS0_18SixAxisSensorStateEiRKNS0_19
     }
     // Preserve the last pose rather than injecting a sudden gravity/orientation
     // change when the menu takes control; discard menu movement on resume.
-    if (!mot.sampling || mot.sampling == 1) motion_gate_init(&mot.gate);
     motion_gate_sample(&mot.gate, f, !live, now);
     *(uint32_t *)(s + 0x58) = 1;
     {   // ODYSSEY_LOG_MOTION=1: what the game reads, once a second (how many samples it asks for, the values)

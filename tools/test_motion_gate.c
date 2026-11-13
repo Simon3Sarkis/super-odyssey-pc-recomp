@@ -36,6 +36,31 @@ int main(void) {
     // A second menu opening holds the newly delivered pose, not an older pose.
     motion_gate_sample(&g, s, true, 3300000000ull);
     near(s[0], 2.5f); near(s[3], 0);
-    puts("motion gate: menu continuity, suppressed motion, resume and recovery passed");
+    motion_gate_settle(&g, 4000000000ull);
+    memcpy(s, tilted, sizeof s); s[0] = -5;
+    motion_gate_sample(&g, s, false, 4500000000ull);
+    near(s[0], 2.5f); near(s[3], 0);
+    memcpy(s, tilted, sizeof s);
+    motion_gate_sample(&g, s, false, 5000000000ull);
+    near(s[0], 2.5f); near(s[3], 0);
+    memcpy(s, tilted, sizeof s);
+    motion_gate_sample(&g, s, false, 5250000000ull);
+    near(s[0], tilted[0]); near(s[3], tilted[3]);
+    MotionBias b = {0};
+    const float accel[3] = {0, 0.13f, -1.03f};
+    float gyro[3];
+    for (int i = 0; i < 500; i++) {
+        gyro[0] = -0.001f; gyro[1] = 0.006f; gyro[2] = 0;
+        motion_bias_sample(&b, accel, gyro, true, 6000000000ull + i * 5000000ull);
+    }
+    assert(fabsf(gyro[1]) < 0.00001f);
+    float saved_bias = b.bias[1];
+    gyro[0] = 0; gyro[1] = 0.25f; gyro[2] = 0;
+    motion_bias_sample(&b, accel, gyro, true, 8500000000ull);
+    near(b.bias[1], saved_bias); near(gyro[1], 0.25f - saved_bias);
+    gyro[0] = 0; gyro[1] = 0.01f; gyro[2] = 0;
+    motion_bias_sample(&b, accel, gyro, false, 8600000000ull);
+    near(b.bias[1], saved_bias); near(gyro[1], 0.01f - saved_bias);
+    puts("motion gate: menu/load settling, gyro bias and intentional motion passed");
     return 0;
 }

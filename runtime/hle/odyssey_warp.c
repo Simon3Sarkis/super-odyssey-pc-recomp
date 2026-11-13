@@ -151,6 +151,7 @@ static _Atomic uint64_t g_scene_start, g_last_control;  // (frames + 1, 0 = neve
 static _Atomic uint64_t g_first_scene_start;
 static _Atomic bool g_scene_new;  // StageScene::init ran: the next control call starts a scene (often at the old address)
 static GuestFn g_init;
+extern void input_motion_settle(void);
 
 bool odyssey_scene_warming(void) {
     uint64_t now = renderer_present_count() + 1, last = g_last_control, start = g_scene_start;
@@ -165,6 +166,7 @@ int odyssey_first_scene_warmup(void) {
 }
 
 static void stage_scene_init(Cpu *c) {
+    input_motion_settle();
     g_scene_new = true;
     g_init(c);
 }
@@ -175,6 +177,7 @@ static void stage_scene_control(Cpu *c) {
         if (!g_first_scene_start) g_first_scene_start = now;
         g_scene_new = false;
         g_scene_start = now;
+        input_motion_settle(); // the first playable update after loading a save/stage
         if (g_log) LOG("[warp] stage scene %llx running at frame %llu\n", (unsigned long long)c->x[0], (unsigned long long)now - 1);
     }
     g_last_control = now;

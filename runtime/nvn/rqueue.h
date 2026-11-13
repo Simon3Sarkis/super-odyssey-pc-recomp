@@ -3,7 +3,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-enum { RQ_EXEC = 1, RQ_FENCE, RQ_FRAME, RQ_PRESENT, RQ_DLSS_CAMERA, RQ_ODYSSEY_POSE };
+enum { RQ_EXEC = 1, RQ_FENCE, RQ_FRAME, RQ_PRESENT, RQ_DLSS_CAMERA, RQ_ODYSSEY_POSE, RQ_CPU_TEXEL };
+typedef struct {
+    uint64_t addr;
+    uint32_t x, y, component, components;
+    uint16_t value;
+    bool valid;
+} RqCpuTexel;
 bool rq_enabled(void);                            // (ODYSSEY_RENDER_THREAD=0: no; macOS: no)
 bool rq_on_thread(void);                          // the caller is the render thread
 uint64_t rq_push(int type, void *p, uint64_t a);  // queued; returns its ticket

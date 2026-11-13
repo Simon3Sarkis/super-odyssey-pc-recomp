@@ -29,7 +29,7 @@ static uint32_t device_integer(uint32_t which) {
         [40] = 1, [41] = 1, [42] = 1,  // min/max filtering, stencil8, ASTC
         [43] = 0x40000, [44] = 15, [45] = 2048,
         [46] = 1, [47] = 5, [48] = 1, [49] = 15,
-        [50] = 256, [51] = 1, [52] = 0, [53] = 0, [54] = 0, [55] = 256, [56] = 1, [57] = 0x1000,
+        [50] = 256, [51] = 1, [52] = 0, [53] = 0, [54] = 0, [55] = 256, [56] = 32, [57] = 128,
         [58] = 1, [59] = 1, [60] = 1, [61] = 1, [62] = 1, [63] = 1, [64] = 1,
     };
     // Odyssey 1.4.1 was built against a newer NVN and refuses one older than 53.311 (sead::GameFrameworkNx::
@@ -222,7 +222,40 @@ NVN(nvnMemoryPoolInitialize) {
 // (frame interpolation: a replay on its own thread must not run while a host object it may use goes - interp.c)
 NVN(nvnMemoryPoolFinalize) { rq_drain(); interp_free_begin(); free(HOST(NvnPool, A(0))); SET_HOST(A(0), 0); interp_free_end(); }
 NVN(nvnMemoryPoolSetDebugLabel) { (void)c; }
-NVN(nvnMemoryPoolMap) { RET(HOST(NvnPool, A(0))->storage); }
+NVN(nvnMemoryPoolMap) {
+    NvnPool *p = HOST(NvnPool, A(0));
+    // The lifted game's direct calls bypass dispatch overrides. Observe the NVN
+    // boundary instead, where the F16 reader has already calculated its row pitch.
+    static int trace = -1;
+    if (trace < 0) trace = getenv("ODYSSEY_LOG_LINREAD") != NULL;
+    static uint64_t count;
+    static int feedback = -1;
+    if (feedback < 0) { const char *e = getenv("ODYSSEY_FOG_CPU_READBACK"); feedback = e && atoi(e) != 0; }
+    if ((trace || feedback) && c->x[30] == 0x70007ac640ull) {
+        uint32_t nc = c->x[19], comp = c->x[20], y = c->x[21], x = c->x[22];
+        uint64_t off = (uint32_t)c->x[23];
+        // Match the reader's 32-bit madd/mul before its signed halfword indexing.
+        int64_t index = (int32_t)(((uint32_t)c->x[24] * y + x) * nc);
+        int64_t byte = (int64_t)off + index * 2 + (int32_t)comp * 2;
+        uint16_t value = 0;
+        bool valid = byte >= 0 && (uint64_t)byte < p->size && p->size - (uint64_t)byte >= 2;
+#ifndef __APPLE__
+        if (feedback && valid) {
+            RqCpuTexel q = {.addr = p->storage + off, .x = x, .y = y, .component = comp, .components = nc};
+            if (rq_enabled() && !rq_on_thread()) rq_wait(rq_push(RQ_CPU_TEXEL, &q, 0));
+            else { extern void renderer_cpu_texel(RqCpuTexel *); renderer_cpu_texel(&q); }
+            if (q.valid) memcpy((void *)(uintptr_t)(p->storage + byte), &q.value, 2);
+        }
+#endif
+        if (valid) memcpy(&value, (void *)(uintptr_t)(p->storage + byte), 2);
+        ++count;
+        if (trace && (count <= 64 || !(count % 2000)))
+        LOG("[linread-map] #%llu storage %llx size %llx offset %llx xy %u %u nc %u comp %u row-elements %u byte %lld half %04x valid %d\n",
+            (unsigned long long)count, (unsigned long long)p->storage, (unsigned long long)p->size,
+            (unsigned long long)off, x, y, nc, comp, (unsigned)c->x[24], (long long)byte, value, valid);
+    }
+    RET(p->storage);
+}
 NVN(nvnMemoryPoolGetBufferAddress) { RET(HOST(NvnPool, A(0))->storage); }  // GPU address == CPU address
 NVN(nvnMemoryPoolGetSize) { RET(HOST(NvnPool, A(0))->size); }
 NVN(nvnMemoryPoolGetFlags) { RET(HOST(NvnPool, A(0))->flags); }

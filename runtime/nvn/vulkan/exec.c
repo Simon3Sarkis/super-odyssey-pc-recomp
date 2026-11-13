@@ -19,6 +19,7 @@
 #include "vk.h"
 #include "dlss_probe.h"
 #include "../interp.h"
+#include "../rqueue.h"
 #include "../renderer.h"
 #include "../../romfs_read.h"
 #include "../../settings.h"
@@ -6521,6 +6522,43 @@ static void debug_draw(Prog *pr, CmdRec *r, bool indexed) {
         }
         LOG("\n");
     }
+}
+
+// Experimental CPU feedback: read only the resource and texel explicitly requested
+// by the game. Stage on the render thread; never DMA into the live guest heap.
+void renderer_cpu_texel(RqCpuTexel *q) {
+    NvnTexture *t = tex_trace_find(q->addr);
+    TexBackend *b = t ? t->backend : NULL;
+    const FormatInfo *fi = t ? t->layout.fmt : NULL;
+    if (!b || !b->image || !fi || !q->components || q->components > 4 || fi->bpb != q->components * 2 || q->component >= q->components ||
+        (t->format != 0x05 && t->format != 0x11 && t->format != 0x29) || b->guest_format ||
+        b->width != t->width || b->height != t->height || b->layers != 1 || b->depth != 1 || b->samples != 1 ||
+        q->x >= b->width || q->y >= b->height || b->width > 1024 || b->height > 1024) return;
+    typedef struct { uint64_t id, frame, size; uint8_t *bytes; } Cache;
+    static Cache cache[8];
+    static unsigned next;
+    Cache *e = NULL;
+    for (int i = 0; i < 8; i++) if (cache[i].id == t->debug_id) { e = &cache[i]; break; }
+    if (!e) { e = &cache[next++ % 8]; e->id = t->debug_id; e->frame = UINT64_MAX; }
+    uint64_t frame = renderer_present_count(), size = (uint64_t)b->width * b->height * fi->bpb;
+    if (e->frame != frame || e->size != size) {
+        vk_end_pass();
+        st.rt_dirty = true;
+        VkCommandBuffer cb = vk_cmd();
+        vk_full_barrier(cb);
+        VkSpan out = vk_readback(size);
+        VkBufferImageCopy cp = {.bufferOffset = out.off, .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                                .imageExtent = {b->width, b->height, 1}};
+        vkCmdCopyImageToBuffer(cb, b->image, VK_IMAGE_LAYOUT_GENERAL, out.buf, 1, &cp);
+        wait_why = "fog CPU feedback probe";
+        renderer_flush();
+        if (e->size != size) { free(e->bytes); e->bytes = malloc(size); e->size = size; }
+        if (!e->bytes) { e->size = 0; return; }
+        memcpy(e->bytes, out.ptr, size);
+        e->frame = frame;
+    }
+    memcpy(&q->value, e->bytes + ((uint64_t)q->y * b->width + q->x) * fi->bpb + q->component * 2, 2);
+    q->valid = true;
 }
 
 // ================================================================== texture copies

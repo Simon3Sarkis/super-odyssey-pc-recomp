@@ -4,7 +4,8 @@
 # after make deps-windows and make gen-helper (it reads their build trees).
 set -euo pipefail
 D="$1/licenses"
-U=/c/msys64/ucrt64/share/licenses
+# (the MSYS2 tree the build uses, wherever it is installed: its clang's ../share/licenses)
+U=$(cd "$(dirname "$(command -v clang)")/../share/licenses" && pwd)
 SP=build/gen-venv/Lib/site-packages
 FF=build/deps-win/src/ffmpeg
 PYHOME=$(build/gen-venv/Scripts/python.exe -c 'import sys; print(sys.base_prefix)')
@@ -27,6 +28,10 @@ cp "$(cygpath -u "$PYHOME")/LICENSE.txt" "$D/Python-PSF.txt"
 cp $SP/capstone-*.dist-info/LICENSE.TXT "$D/Capstone-BSD.txt"
 cp $SP/lz4-*.dist-info/licenses/LICENSE "$D/python-lz4-BSD.txt"
 cp build/zig/LICENSE "$D/Zig-MIT.txt"
+cp build/upscalers/NVIDIA-RTX-SDK-LICENSE.txt "$D/NVIDIA-RTX-SDK-LICENSE.txt"
+cp third_party/fsr3_sdk/LICENSE-SDK.md "$D/AMD-FSR-SDK-LICENSE.md"
+cp third_party/xess/LICENSE-RUNTIME.txt "$D/Intel-XeSS-LICENSE.txt"
+cp third_party/xess/third-party-programs.txt "$D/Intel-XeSS-THIRD-PARTY.txt"
 cat > "$D/README.txt" <<'EOF'
 Super Odyssey PC Recomp - third-party components in this release and their licences
 ==============================================================================
@@ -50,6 +55,14 @@ Program (SuperOdysseyRecomp.exe and the DLLs next to it)
 - SMAA (MIT) - SMAA-MIT.txt; AMD FidelityFX Super Resolution 1 (MIT) - AMD-FSR1-MIT.txt
 - Parts of the audio renderer and of the shader translator follow an MIT-licensed project - Ryujinx-MIT.txt
 - The Roboto font, Roboto-Medium.ttf (Apache 2.0, Google) - Apache-2.0.txt
+
+Upscaler runtimes (unmodified, as the vendors ship them and signed by them; each loaded only when chosen in the menu)
+- nvngx_dlss.dll - NVIDIA DLSS 310.9.1, from https://github.com/NVIDIA/DLSS - NVIDIA-RTX-SDK-LICENSE.txt.
+  This software contains source code provided by NVIDIA Corporation.
+- amd_fidelityfx_loader_vk.dll, amd_fidelityfx_upscaler_vk.dll - AMD FidelityFX SDK 2.4.0 (FSR 3.1 / FSR 4), from
+  https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK - AMD-FSR-SDK-LICENSE.md
+- libxess.dll - Intel XeSS 2.0.2, from https://github.com/intel/xess - Intel-XeSS-LICENSE.txt,
+  Intel-XeSS-THIRD-PARTY.txt
 
 Setup's tools (used once, on your PC, to build the game code from your own game files)
 - zig/ - Zig 0.17.0 (MIT) - Zig-MIT.txt - https://ziglang.org - with LLVM / Clang / LLD (Apache 2.0 with LLVM

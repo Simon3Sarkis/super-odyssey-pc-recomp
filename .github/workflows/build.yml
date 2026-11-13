@@ -1,0 +1,88 @@
+# The Windows zip and the Linux AppImage, built from a clean checkout on GitHub's machines, kept as downloadable
+# artifacts of each run (Actions > the run > Artifacts). Nothing is published: releases stay a manual step
+# (tools/release.sh), which tests these packages first. No game files, keys or game code are involved: the packages
+# hold the app and the setup's tools only, and players build the game code from their own copy.
+name: build
+
+on:
+  push:
+    branches: [main, 'ci/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: LF line endings (the build's bash tools need them)
+        shell: pwsh
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      # python.org's own CPython: the release ships its signed interpreter as the generator's (tools/pyembed.py)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          path-type: inherit
+          update: true
+          install: >-
+            make diffutils unzip
+            mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-lld mingw-w64-ucrt-x86_64-binutils
+            mingw-w64-ucrt-x86_64-sdl3 mingw-w64-ucrt-x86_64-vulkan-devel mingw-w64-ucrt-x86_64-vulkan-memory-allocator
+            mingw-w64-ucrt-x86_64-shaderc mingw-w64-ucrt-x86_64-spirv-tools mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-nasm mingw-w64-ucrt-x86_64-curl
+      - name: Cache the LGPL FFmpeg build
+        uses: actions/cache@v4
+        with:
+          path: build/deps-win
+          key: deps-win-${{ hashFiles('tools/build_deps_windows.sh') }}
+      - name: LGPL FFmpeg (make deps-windows)
+        run: make deps-windows
+      - name: Game code generator (make gen-helper)
+        run: make gen-helper PY312=python
+      - name: Compiler for the setup (tools/fetch_zig.sh)
+        run: tools/fetch_zig.sh
+      - name: Upscaler runtimes (tools/fetch_upscalers.sh)
+        run: tools/fetch_upscalers.sh
+      - name: Package (make dist)
+        run: make -j4 dist
+      - name: Contents
+        run: |
+          cd "build/dist/Super Odyssey PC Recomp"
+          ls -la
+          ls licenses
+          du -sh .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: build/dist/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      # (Ubuntu 22.04 containers, podman: tools/linux/appimage.sh; the same steps as on the Steam Deck)
+      - name: AppImage (tools/linux/appimage.sh)
+        run: tools/linux/appimage.sh x86_64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: build/dist/*.AppImage
+          if-no-files-found: error
+          retention-days: 30

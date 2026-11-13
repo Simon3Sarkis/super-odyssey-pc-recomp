@@ -714,18 +714,25 @@ static void tab_graphics(void) {
         static const char *presets[] = {"Default", "K", "L", "M"};
         opt_choice("DLSS mode", &g_settings.dlss_mode, modes, DLSS_MODE_COUNT, DLSS_OFF,
                    "DLAA anti-aliases at display resolution. Quality, Balanced and Performance render at progressively "
-                   "lower resolutions. Off takes effect immediately. Restart after selecting another mode.");
+                   "lower resolutions. Changes apply during play; history resets while the new mode is prepared.");
         opt_choice("DLSS preset", &g_settings.dlss_preset, presets, DLSS_PRESET_COUNT, DLSS_PRESET_DEFAULT,
-                   "Model hint for NVIDIA DLSS. Default lets the installed model choose. Applies on the next launch.");
+                   "Model hint for NVIDIA DLSS. Default uses K for DLAA/Quality/Balanced and M for Performance. Changes during play.");
     }
     // One visible control, with independent amounts for each reconstruction method.
     if (g_settings.dlss_mode != DLSS_OFF || g_settings.upscaler == UPSCALE_FSR1) {
         bool dlss = g_settings.dlss_mode != DLSS_OFF;
+        if (dlss) {
+            float reconstruction = (float)g_settings.dlss_rcas_sharpness;
+            if (opt_slider("DLSS sharpness (RCAS)", &reconstruction, 0, 100, 10, 20, "%g%%",
+                           "RCAS after DLSS/DLAA, the sharpening technique used by the Astral Chain reference. "
+                           "Independent of optional CAS below. 0% bypasses it. Changes at once."))
+                g_settings.dlss_rcas_sharpness = (int)reconstruction;
+        }
         if (dlss) opt_toggle("CAS sharpening", &g_settings.dlss_cas, false,
                              "Optional FidelityFX CAS after DLSS or DLAA. Turning it off preserves the unsharpened output. Changes at once.");
         if (dlss && !g_settings.dlss_cas) opt_disable_next();
         float amount = dlss ? g_settings.dlss_sharpness : g_settings.fsr1_sharpness;
-        if (opt_slider("Sharpness", &amount, 0, 100, 10, dlss ? 20 : 90, "%g%%",
+        if (opt_slider(dlss ? "CAS sharpness" : "Sharpness", &amount, 0, 100, 10, dlss ? 20 : 90, "%g%%",
                        dlss ? "Sharpens DLSS or DLAA using FidelityFX CAS. 0% turns sharpening off. Changes at once. "
                               "The amount is saved separately from other upscalers. High values can emphasize jagged edges."
                             : "Adjusts FSR 1's RCAS sharpening. 0% turns sharpening off. Changes at once. "

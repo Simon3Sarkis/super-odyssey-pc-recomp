@@ -6903,7 +6903,7 @@ static VkPipeline post_pipeline(const char *fs) {
                                               .pAttachments = &cba};
     VkDynamicState dyn[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
     VkPipelineDynamicStateCreateInfo dy = {.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO, .dynamicStateCount = 2, .pDynamicStates = dyn};
-    VkFormat fmt = !strcmp(fs, "cas.frag") ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
+    VkFormat fmt = !strcmp(fs, "cas.frag") || !strcmp(fs, "dlss_rcas.frag") ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
     VkPipelineRenderingCreateInfo ri = {.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO, .colorAttachmentCount = 1,
                                         .pColorAttachmentFormats = &fmt};
     VkPipelineDepthStencilStateCreateInfo ds = {.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
@@ -6922,15 +6922,16 @@ static void prewarm_post_pipelines(void) {
         "smaa_edge.frag", "smaa_weight.frag", "smaa_blend.frag", "easu.frag", "rcas.frag",
 #ifdef _WIN32
         "cas.frag",
+        "dlss_rcas.frag",
 #endif
     };
     for (size_t i = 0; i < sizeof filters / sizeof *filters; i++) post_pipeline(filters[i]);
 }
 
 // Post image `i` at w x h. 0, 1: SMAA edges / weights, 2: SMAA output,
-// 3, 4: FSR EASU / RCAS (RGBA8). 5: CAS on DLSS (half float, like DLSS).
+// 3, 4: FSR EASU / RCAS (RGBA8). 5, 6: CAS / RCAS on DLSS (half float).
 static TexBackend *post_image(int i, uint32_t w, uint32_t h) {
-    static TexBackend img[6];
+    static TexBackend img[7];
     TexBackend *d = &img[i];
     if (d->image && (d->width != w || d->height != h)) {
         vk_views_forget(d);
@@ -6939,7 +6940,7 @@ static TexBackend *post_image(int i, uint32_t w, uint32_t h) {
         d->mem = VK_NULL_HANDLE;
     }
     if (!d->image) {
-        VkFormat format = i == 5 ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
+        VkFormat format = i >= 5 ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
         VkImageCreateInfo ci = {.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .imageType = VK_IMAGE_TYPE_2D,
                                 .format = format, .extent = {w, h, 1}, .mipLevels = 1, .arrayLayers = 1,
                                 .samples = VK_SAMPLE_COUNT_1_BIT, .tiling = VK_IMAGE_TILING_OPTIMAL,
@@ -7028,15 +7029,26 @@ static VkImageView post_process(VkCommandBuffer cb, TexBackend *b, double ow_d, 
 #ifdef _WIN32
     VkImageView dlss = vk_dlss_upscale(cb, b, v, ow, oh, renderer_present_count());
     if (dlss) {
-        if (!g_settings.dlss_cas || !g_settings.dlss_sharpness) return dlss;
+        bool cas = g_settings.dlss_cas && g_settings.dlss_sharpness > 0;
+        if (!cas && !g_settings.dlss_rcas_sharpness) return dlss;
         extern void vk_frame_suspend(void), vk_frame_resume(void);
         vk_frame_suspend();
-        TexBackend *sharp = post_image(5, ow, oh);
-        float pc[8] = {g_settings.dlss_sharpness * 0.01f};
-        post_pass(cb, "cas.frag", &dlss, 1, sharp, pc, false);
-        vk_full_barrier(cb);
+        if (g_settings.dlss_rcas_sharpness > 0) {
+            TexBackend *sharp = post_image(6, ow, oh);
+            float pc[8] = {exp2f(-2.0f * (1.0f - g_settings.dlss_rcas_sharpness * 0.01f)), 0, 0, 0, (float)ow, (float)oh};
+            post_pass(cb, "dlss_rcas.frag", &dlss, 1, sharp, pc, false);
+            vk_full_barrier(cb);
+            dlss = post_view(sharp);
+        }
+        if (cas) {
+            TexBackend *sharp = post_image(5, ow, oh);
+            float pc[8] = {g_settings.dlss_sharpness * 0.01f};
+            post_pass(cb, "cas.frag", &dlss, 1, sharp, pc, false);
+            vk_full_barrier(cb);
+            dlss = post_view(sharp);
+        }
         vk_frame_resume();
-        return post_view(sharp);
+        return dlss;
     }
 #endif
     bool fsr = g_settings.upscaler == UPSCALE_FSR1 && (ow > b->width + 1 || oh > b->height + 1);  // (an upscale only)

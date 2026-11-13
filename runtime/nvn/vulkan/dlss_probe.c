@@ -37,16 +37,16 @@ static struct {
     unsigned device_count;
 } ngx;
 static atomic_bool available;
-static int mode_at_start, preset_at_start;
+static bool forced_off;
 
 bool vk_dlss_enabled(void) {
-    return g_settings.dlss_mode != DLSS_OFF && atomic_load_explicit(&available, memory_order_relaxed);
+    return !forced_off && g_settings.dlss_mode != DLSS_OFF && atomic_load_explicit(&available, memory_order_relaxed);
 }
 
 double vk_dlss_scale(void) {
     if (!vk_dlss_enabled()) return 0;
     static const double scales[DLSS_MODE_COUNT] = {0, 1, 2.0 / 3.0, 1.0 / 1.7, 0.5};
-    return scales[mode_at_start];
+    return scales[g_settings.dlss_mode];
 }
 
 static void close_ngx(void) {
@@ -75,16 +75,12 @@ static bool add_extensions(const VkExtensionProperties *have, uint32_t available
 }
 
 void vk_dlss_probe_instance(const char **ext, uint32_t *count, uint32_t capacity) {
-    // ODYSSEY_DLSS_PROBE=1 checks driver/model support without changing any rendering.
-    const char *on = getenv("ODYSSEY_DLSS_PROBE");
+    // Discover the optional driver path at start, including when the selected mode is Off.
     const char *override = getenv("ODYSSEY_DLSS");  // tests can disable the driver path
-    mode_at_start = g_settings.dlss_mode;
-    if (override && !strcmp(override, "0")) mode_at_start = DLSS_OFF;
-    preset_at_start = g_settings.dlss_preset;
-    if (mode_at_start == DLSS_OFF && (!on || strcmp(on, "1"))) {
-        LOG("[dlss] Off: using the game's regular output path\n");
-        return;
-    }
+    forced_off = override && !strcmp(override, "0");
+    if (forced_off) return;
+    // Probe capability even when initially Off, so enabling it in the menu can
+    // use the Vulkan extensions already enabled on this device.
     wchar_t path[1024];
     DWORD bytes = sizeof path;
     if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\NVIDIA Corporation\\Global\\NGXCore", L"FullPath",
@@ -161,7 +157,7 @@ void vk_dlss_probe_run(void) {
             }
             LOG("[dlss] NGX Super Resolution capability: %s (query %08x)\n",
                 r == 1 && supported ? "available" : "unavailable", r);
-            if (mode_at_start != DLSS_OFF && r == 1 && supported && ngx.allocate && ngx.create && ngx.evaluate && ngx.release) {
+            if (r == 1 && supported && ngx.allocate && ngx.create && ngx.evaluate && ngx.release) {
                 VkPhysicalDeviceFeatures features;
                 vkGetPhysicalDeviceFeatures(g_vk.phys, &features);
                 if (features.shaderStorageImageExtendedFormats) {
@@ -200,6 +196,7 @@ static struct {
     VkPipeline motion_pipeline;
     NgxParameters *parameters;
     NgxFeature *feature;
+    int feature_mode, feature_preset;
 } dlss;
 
 static float halton(unsigned index, unsigned base) {
@@ -494,16 +491,17 @@ static VkImageView evaluate(VkCommandBuffer cb, const TexBackend *color, VkImage
         static const char *const hints[] = {NULL, "DLSS.Hint.Render.Preset.DLAA", "DLSS.Hint.Render.Preset.Quality",
             "DLSS.Hint.Render.Preset.Balanced", "DLSS.Hint.Render.Preset.Performance"};
         static const unsigned models[] = {0, 11, 12, 13};
-        set_int(p, "PerfQualityValue", quality[mode_at_start]);
-        set_uint(p, hints[mode_at_start], models[preset_at_start]);
+        int mode = g_settings.dlss_mode, preset = g_settings.dlss_preset;
+        set_int(p, "PerfQualityValue", quality[mode]);
+        unsigned model = preset == DLSS_PRESET_DEFAULT ? (mode == DLSS_PERFORMANCE ? 13 : 11) : models[preset];
+        set_uint(p, hints[mode], model);
         set_int(p, "DLSS.Feature.Create.Flags", 1 << 1);
         unsigned r = ngx.create(cb, 1, p, &dlss.feature);
         if (r != 1 || !dlss.feature) { failed("feature creation", r); return VK_NULL_HANDLE; }
         dlss.ow = ow;
         dlss.oh = oh;
-        LOG("[dlss] %s created: %ux%u -> %ux%u, preset hint %s\n", names[mode_at_start], dlss.w, dlss.h, ow, oh,
-            preset_at_start == DLSS_PRESET_K ? "K" : preset_at_start == DLSS_PRESET_L ? "L" :
-            preset_at_start == DLSS_PRESET_M ? "M" : "Default");
+        dlss.feature_mode = mode; dlss.feature_preset = preset;
+        LOG("[dlss] %s created: %ux%u -> %ux%u, preset hint %u\n", names[mode], dlss.w, dlss.h, ow, oh, model);
     }
 
     float matrix[16] = {0};
@@ -541,10 +539,11 @@ static VkImageView evaluate(VkCommandBuffer cb, const TexBackend *color, VkImage
     set_ptr(p, "Depth", &d);
     set_ptr(p, "MotionVectors", &m);
     set_ptr(p, "Output", &o);
-    // NGX wants the sampling displacement, opposite the raster displacement.
-    // Camera motion vectors exclude jitter, so MVJittered stays unset.
-    set_float(p, "Jitter.Offset.X", -dlss.scene_jitter[0]);
-    set_float(p, "Jitter.Offset.Y", -dlss.scene_jitter[1]);
+    // Match the viewport displacement in right/down input pixels (as in Astral
+    // Chain's viewport/NGX pair). Camera vectors exclude jitter: MVJittered unset.
+    set_float(p, "Jitter.Offset.X", dlss.scene_jitter[0]);
+    set_float(p, "Jitter.Offset.Y", dlss.scene_jitter[1]);
+    set_float(p, "Sharpness", 0); // current models use the explicit post-sharpening passes
     set_float(p, "MV.Scale.X", 1);
     set_float(p, "MV.Scale.Y", 1);
     set_float(p, "DLSS.Pre.Exposure", 1);
@@ -583,12 +582,14 @@ static bool can_evaluate(const TexBackend *color, uint32_t ow, uint32_t oh, uint
     }
     if (!vk_dlss_enabled() || !dlss.scene_ready || dlss.frame != frame ||
         (dlss.history && dlss.last_eval == frame) || color->width != dlss.w || color->height != dlss.h ||
-        ow < dlss.w || oh < dlss.h || (mode_at_start != DLSS_DLAA && (ow == dlss.w || oh == dlss.h))) return false;
+        ow < dlss.w || oh < dlss.h || (g_settings.dlss_mode != DLSS_DLAA && (ow == dlss.w || oh == dlss.h))) return false;
+    if (g_settings.dlss_mode == DLSS_DLAA && (ow != dlss.w || oh != dlss.h)) return false;
     return true;
 }
 
 static bool ensure_output(uint32_t ow, uint32_t oh) {
-    return !dlss.ow || (dlss.ow == ow && dlss.oh == oh) || reset_output();
+    return !dlss.ow || (dlss.ow == ow && dlss.oh == oh && dlss.feature_mode == g_settings.dlss_mode &&
+                        dlss.feature_preset == g_settings.dlss_preset) || reset_output();
 }
 
 VkImageView vk_dlss_upscale(VkCommandBuffer cb, const TexBackend *color, VkImageView view,

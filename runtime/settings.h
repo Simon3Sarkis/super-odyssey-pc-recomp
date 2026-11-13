@@ -47,9 +47,10 @@ typedef struct {
     int res_mode;        // RES_MATCH, 1..4 (N x the Switch's 1080p), RES_DYNAMIC, RES_Q75/50/25 (share of the display)
     int upscaler;        // UPSCALE_*: how a lower internal resolution reaches the window (MetalFX: macOS, FSR 1: Windows)
     int antialias;       // AA_*: anti-aliasing of the game image before it is scaled to the window
-    int dlss_mode, dlss_preset;  // Windows NVIDIA modes and model hints, applied at next start
+    int dlss_mode, dlss_preset;  // Windows NVIDIA modes and model hints, applied during play
     bool dlss_cas;
     int dlss_sharpness;   // FidelityFX CAS percent, 0..100; zero disables sharpening
+    int dlss_rcas_sharpness; // reconstruction sharpening, independent of optional CAS
     int fsr1_sharpness;   // FSR 1's RCAS percent, 0..100; stored independently
     int aspect;          // ASPECT_*: the image in a window wider than 16:9
     bool frame_interp;   // images between the game's frames (Vulkan: runtime/nvn/interp.c)

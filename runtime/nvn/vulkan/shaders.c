@@ -450,7 +450,7 @@ static const char *builtin_src(const char *name, int *stage) {
                "layout(location=0) out vec4 o;\n"
                "vec3 sampleLinear(ivec2 p) {\n"
                "  vec3 c = clamp(texelFetch(src, clamp(p, ivec2(0), textureSize(src,0)-1), 0).rgb, 0.0, 1.0);\n"
-               "  return c*c;\n"  // CAS's gamma 2 approximation for SDR input.
+               "  return c;\n"  // The final SDR signal is already display-referred, like the RCAS input.
                "}\n"
                "void main() {\n"
                "  ivec2 p = ivec2(gl_FragCoord.xy);\n"
@@ -464,12 +464,12 @@ static const char *builtin_src(const char *name, int *stage) {
                "  vec3 amp=sqrt(clamp(min(lo,2.0-hi)/max(hi,vec3(1e-6)),0.0,1.0));\n"
                "  vec3 weight=-amp/mix(8.0,5.0,pc.a.x);\n"
                "  vec3 sharp=clamp((e+weight*(n+s+w+r))/(1.0+4.0*weight),0.0,1.0);\n"
-               "  o=vec4(sqrt(sharp),1);\n"
+               "  o=vec4(sharp,1);\n"
                "}\n";
     }
     // FSR 1 RCAS: contrast-adaptive sharpening of the EASU output (same size). a.x = sharpness (exp2(-stops)),
     // b.xy = image size. The lobe is limited so the result stays inside the neighbours' range; noise is damped.
-    if (!strcmp(name, "rcas.frag")) {
+    if (!strcmp(name, "rcas.frag") || !strcmp(name, "dlss_rcas.frag")) {
         *stage = STAGE_FRAGMENT;
         return "#version 450\n"
                "layout(set = 0, binding = 0) uniform sampler2D t;\n"

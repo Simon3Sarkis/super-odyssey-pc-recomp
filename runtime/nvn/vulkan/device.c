@@ -961,9 +961,9 @@ static bool present_fast(TexBackend *w) {
             if (bgr) { uint8_t t = px[i * 4]; px[i * 4] = px[i * 4 + 2]; px[i * 4 + 2] = t; }
             px[i * 4 + 3] = 255;
         }
-        char path[64];
+        char path[1024];
         if (ws_n > 1) snprintf(path, sizeof path, "build/window_%02d.png", ws_i);
-        else snprintf(path, sizeof path, "build/window.png");
+        else snprintf(path, sizeof path, "%s", getenv("ODYSSEY_WINDOW_SHOT_PATH") ? getenv("ODYSSEY_WINDOW_SHOT_PATH") : "build/window.png");
         vk_save_png(path, px, e.width, e.height);
         vmaDestroyBuffer(g_vk.vma, sbuf, smem);
         if (++ws_i == ws_n && getenv("ODYSSEY_EXIT_AFTER_SHOT")) { fflush(stderr); _exit(0); }
@@ -1377,9 +1377,10 @@ static void backend_present_locked(NvnTexture *t, bool handed) {
             if (spec) sscanf(spec, "%ld:%ld", &win_shot, &shot_count);
         }
         bool shot = win_shot && (long)total_frames + 1 >= win_shot && shot_index < shot_count;
-        char shot_path[64];
+        char shot_path[1024];
         if (shot) {
-            if (shot_count == 1) snprintf(shot_path, sizeof shot_path, "build/window.png");
+            if (shot_count == 1) snprintf(shot_path, sizeof shot_path, "%s",
+                getenv("ODYSSEY_WINDOW_SHOT_PATH") ? getenv("ODYSSEY_WINDOW_SHOT_PATH") : "build/window.png");
             else snprintf(shot_path, sizeof shot_path, "build/window_%02ld.png", shot_index);
             shot_index++;
         }

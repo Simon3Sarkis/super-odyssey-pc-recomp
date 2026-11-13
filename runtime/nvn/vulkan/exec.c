@@ -6036,7 +6036,12 @@ static void draw_(CmdRec *r, bool indexed) {
             k = pass_sx / pass_sy;
         float vx = vp[0] * vp_sx + vp_ox, vw = vp[2] * vp_sx;
         if (k > 1.0f) { vx -= vw * (k - 1) / 2; vw *= k; }
-        set_viewport(vx, vp[1] * vp_sy + vp_oy, vw, vp[3] * vp_sy, zn, zf);
+        float jitter[2] = {0};
+#ifdef _WIN32
+        if (st.rt.depth && st.ds[0])
+            vk_dlss_viewport_jitter(st.rt.depth->backend, renderer_present_count(), jitter);
+#endif
+        set_viewport(vx + jitter[0], vp[1] * vp_sy + vp_oy + jitter[1], vw, vp[3] * vp_sy, zn, zf);
         if (g_debug_frame) {
             VkRect2D sr = scissor_rect();
             LOG("[draw]   vp %.2f %.2f %.2f %.2f (stretch %.3f, fs hash %016llx) scissor %d %d %u %u | guest sc %d %d %d %d | pass %ux%u s %.4f %.4f\n",
@@ -7004,7 +7009,7 @@ static VkImageView post_process(VkCommandBuffer cb, TexBackend *b, double ow_d, 
 #ifdef _WIN32
     VkImageView dlss = vk_dlss_upscale(cb, b, v, ow, oh, renderer_present_count());
     if (dlss) {
-        if (!g_settings.dlss_cas) return dlss;
+        if (!g_settings.dlss_cas || !g_settings.dlss_sharpness) return dlss;
         extern void vk_frame_suspend(void), vk_frame_resume(void);
         vk_frame_suspend();
         TexBackend *sharp = post_image(5, ow, oh);
@@ -7039,10 +7044,13 @@ static VkImageView post_process(VkCommandBuffer cb, TexBackend *b, double ow_d, 
         float pe[8] = {iw / ow, ih / oh, 0.5f * iw / ow - 0.5f, 0.5f * ih / oh - 0.5f, iw, ih};
         VkImageView ei[3] = {v};
         post_pass(cb, "easu.frag", ei, 1, e, pe, false);
-        float pr[8] = {exp2f(-0.2f), 0, 0, 0, (float)ow, (float)oh};  // (sharpness 0.2 stops: AMD's default)
-        VkImageView ri_[3] = {post_view(e)};
-        post_pass(cb, "rcas.frag", ri_, 1, r, pr, false);
-        v = post_view(r);
+        v = post_view(e);
+        if (g_settings.fsr1_sharpness > 0) {
+            float pr[8] = {exp2f(-2.0f * (1.0f - g_settings.fsr1_sharpness * 0.01f)), 0, 0, 0, (float)ow, (float)oh};
+            VkImageView ri_[3] = {v};
+            post_pass(cb, "rcas.frag", ri_, 1, r, pr, false);
+            v = post_view(r);
+        }
     }
     vk_full_barrier(cb);
     vk_frame_resume();

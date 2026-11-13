@@ -717,13 +717,19 @@ static void tab_graphics(void) {
                    "lower resolutions. Off takes effect immediately. Restart after selecting another mode.");
         opt_choice("DLSS preset", &g_settings.dlss_preset, presets, DLSS_PRESET_COUNT, DLSS_PRESET_DEFAULT,
                    "Model hint for NVIDIA DLSS. Default lets the installed model choose. Applies on the next launch.");
-        opt_toggle("CAS sharpening", &g_settings.dlss_cas, false,
-                   "Applies AMD FidelityFX Contrast Adaptive Sharpening after DLSS or DLAA. Changes at once.");
-        if (!g_settings.dlss_cas) opt_disable_next();
-        float sharpness = (float)g_settings.dlss_sharpness;
-        if (opt_slider("CAS strength", &sharpness, 10, 100, 10, 20, "%g%%",
-                       "Adjusts the amount of sharpening. Changes at once."))
-            g_settings.dlss_sharpness = (int)sharpness;
+    }
+    // One visible control, with independent amounts for each reconstruction method.
+    if (g_settings.dlss_mode != DLSS_OFF || g_settings.upscaler == UPSCALE_FSR1) {
+        bool dlss = g_settings.dlss_mode != DLSS_OFF;
+        float amount = dlss ? (g_settings.dlss_cas ? g_settings.dlss_sharpness : 0) : g_settings.fsr1_sharpness;
+        if (opt_slider("Sharpness", &amount, 0, 100, 10, dlss ? 0 : 90, "%g%%",
+                       dlss ? "Sharpens DLSS or DLAA using FidelityFX CAS. 0% turns sharpening off. Changes at once. "
+                              "The amount is saved separately from other upscalers. High values can emphasize jagged edges."
+                            : "Adjusts FSR 1's RCAS sharpening. 0% turns sharpening off. Changes at once. "
+                              "The amount is saved separately from DLSS.")) {
+            if (dlss) { g_settings.dlss_sharpness = (int)amount; g_settings.dlss_cas = amount > 0; }
+            else g_settings.fsr1_sharpness = (int)amount;
+        }
     }
 #endif
 #ifndef __APPLE__  // (Vulkan: nvn/vulkan/textures.c vk_sampler, "Banding")

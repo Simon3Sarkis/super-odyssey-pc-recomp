@@ -30,6 +30,7 @@ Settings g_settings = {
     .upscaler = UPSCALE_BILINEAR,
 #endif
     .dlss_sharpness = 20,
+    .fsr1_sharpness = 90,
     .deband = true,
     .rumble = true,
     .motion = true,
@@ -200,7 +201,11 @@ void settings_load(void) {
         else if (!strcmp(key, "dlss_cas")) g_settings.dlss_cas = atoi(val) != 0;
         else if (!strcmp(key, "dlss_sharpness")) {
             int n = atoi(val);
-            g_settings.dlss_sharpness = n < 10 ? 10 : n > 100 ? 100 : n;
+            g_settings.dlss_sharpness = n < 0 ? 0 : n > 100 ? 100 : n;
+        }
+        else if (!strcmp(key, "fsr1_sharpness")) {
+            int n = atoi(val);
+            g_settings.fsr1_sharpness = n < 0 ? 0 : n > 100 ? 100 : n;
         }
         else if (!strcmp(key, "deband")) g_settings.deband = atoi(val) != 0;
         else if (!strcmp(key, "aspect")) g_settings.aspect = !strcmp(val, "fill") ? ASPECT_FILL : ASPECT_16_9;
@@ -261,6 +266,7 @@ void settings_save(void) {
     fprintf(f, "dlss_preset = %s\n", dlss_presets[g_settings.dlss_preset]);
     fprintf(f, "dlss_cas = %d\n", g_settings.dlss_cas);
     fprintf(f, "dlss_sharpness = %d\n", g_settings.dlss_sharpness);
+    fprintf(f, "fsr1_sharpness = %d\n", g_settings.fsr1_sharpness);
     fprintf(f, "deband = %d\n", g_settings.deband);
     fprintf(f, "aspect = %s\n", g_settings.aspect == ASPECT_FILL ? "fill" : "16:9");
     fprintf(f, "frame_interp = %d\n", g_settings.frame_interp);

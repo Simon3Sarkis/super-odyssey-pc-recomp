@@ -189,16 +189,39 @@ typedef struct { VkImage image; VkImageView view; VmaAllocation memory; } DlssIm
 static struct {
     DlssCamera camera, scene, previous;
     bool camera_ready, scene_ready, history;
-    VkImage source_depth, previous_depth;
+    VkImage source_depth, previous_depth, jitter_depth;
     uint64_t frame, last_eval, last_eval_ns, eval_count, input_seq, output_seq;
     DlssImage depth, motion, output;
     uint32_t w, h, ow, oh;
+    uint64_t jitter_frame;
+    float jitter[2], scene_jitter[2]; // raster displacement in input pixels, positive right/down
     VkDescriptorSetLayout motion_set;
     VkPipelineLayout motion_layout;
     VkPipeline motion_pipeline;
     NgxParameters *parameters;
     NgxFeature *feature;
 } dlss;
+
+static float halton(unsigned index, unsigned base) {
+    float value = 0, weight = 1;
+    while (index) { weight /= base; value += weight * (index % base); index /= base; }
+    return value;
+}
+
+void vk_dlss_viewport_jitter(const TexBackend *depth, uint64_t frame, float offset[2]) {
+    offset[0] = offset[1] = 0;
+    // Learn the exact main-scene depth image from the bloom input, rather than
+    // jittering every depth target (which would also move shadow maps and UI).
+    if (!vk_dlss_enabled() || !depth || depth->image != dlss.source_depth ||
+        depth->width != dlss.w || depth->height != dlss.h || !dlss.camera_ready) return;
+    double scale = vk_dlss_scale();
+    unsigned phases = (unsigned)ceil(8.0 / (scale * scale));
+    unsigned sample = (unsigned)(frame % phases) + 1;
+    dlss.jitter_frame = frame;
+    dlss.jitter_depth = depth->image;
+    offset[0] = dlss.jitter[0] = halton(sample, 2) - 0.5f;
+    offset[1] = dlss.jitter[1] = halton(sample, 3) - 0.5f;
+}
 
 // ODYSSEY_DLSS_TIMING=1: timestamp the motion pass and DLSS together without waiting for a frame.
 #define DLSS_TIMING_SLOTS 8
@@ -317,6 +340,12 @@ void vk_dlss_capture_depth(const TexBackend *depth, uint64_t frame) {
     vkCmdCopyImage(cb, depth->image, VK_IMAGE_LAYOUT_GENERAL, dlss.depth.image, VK_IMAGE_LAYOUT_GENERAL, 1, &region);
     dlss.input_seq = vk_pending_seq();
     dlss.source_depth = depth->image;
+    bool jittered = dlss.jitter_frame == frame && dlss.jitter_depth == depth->image;
+    dlss.scene_jitter[0] = jittered ? dlss.jitter[0] : 0;
+    dlss.scene_jitter[1] = jittered ? dlss.jitter[1] : 0;
+    if (getenv("ODYSSEY_DLSS_HISTORY_TRACE") && frame % 120 == 0)
+        LOG("[dlss-jitter] frame %llu raster %.4f %.4f input %ux%u\n",
+            (unsigned long long)frame, dlss.scene_jitter[0], dlss.scene_jitter[1], depth->width, depth->height);
     dlss.scene = dlss.camera;
     dlss.frame = frame;
     dlss.scene_ready = true;
@@ -371,12 +400,13 @@ static bool motion_init(VkCommandBuffer cb) {
         "layout(local_size_x=8, local_size_y=8) in;\n"
         "layout(binding=0) uniform sampler2D depth;\n"
         "layout(binding=1, rg16f) uniform writeonly image2D motion;\n"
-        "layout(push_constant) uniform Params { mat4 previousClip; } pc;\n"
+        "layout(push_constant) uniform Params { mat4 previousClip; vec4 jitter; } pc;\n"
         "void main() {\n"
         "    ivec2 p = ivec2(gl_GlobalInvocationID.xy), extent = imageSize(motion);\n"
         "    if (any(greaterThanEqual(p, extent))) return;\n"
         "    vec2 size = vec2(extent), uv = (vec2(p) + 0.5) / size;\n"
         "    vec2 ndc = uv * vec2(2,-2) + vec2(-1,1);\n"
+        "    ndc -= pc.jitter.xy * vec2(2,-2) / size;\n"
         "    float z = texelFetch(depth,p,0).r * 2.0 - 1.0;\n"
         "    vec4 old = pc.previousClip * vec4(ndc,z,1);\n"
         "    vec2 mv = old.w > 1e-6 ? (old.xy / old.w - ndc) * size * vec2(0.5,-0.5) : vec2(0);\n"
@@ -389,7 +419,7 @@ static bool motion_init(VkCommandBuffer cb) {
         {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, NULL}};
     VkDescriptorSetLayoutCreateInfo si = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .bindingCount = 2, .pBindings = binds};
-    VkPushConstantRange push = {VK_SHADER_STAGE_COMPUTE_BIT, 0, 64};
+    VkPushConstantRange push = {VK_SHADER_STAGE_COMPUTE_BIT, 0, 80};
     VkPipelineLayoutCreateInfo li = {.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = 1, .pSetLayouts = &dlss.motion_set, .pushConstantRangeCount = 1, .pPushConstantRanges = &push};
     VkComputePipelineCreateInfo pi = {.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
@@ -418,7 +448,10 @@ static void motion_dispatch(VkCommandBuffer cb, const float transform[16]) {
     vk_full_barrier(cb);
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, dlss.motion_pipeline);
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, dlss.motion_layout, 0, 1, &set, 0, NULL);
-    vkCmdPushConstants(cb, dlss.motion_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 64, transform);
+    float constants[20] = {0};
+    memcpy(constants, transform, 64);
+    constants[16] = dlss.scene_jitter[0]; constants[17] = dlss.scene_jitter[1];
+    vkCmdPushConstants(cb, dlss.motion_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof constants, constants);
     vkCmdDispatch(cb, (dlss.w + 7) / 8, (dlss.h + 7) / 8, 1);
     vk_full_barrier(cb);
 }
@@ -501,8 +534,10 @@ static VkImageView evaluate(VkCommandBuffer cb, const TexBackend *color, VkImage
     set_ptr(p, "Depth", &d);
     set_ptr(p, "MotionVectors", &m);
     set_ptr(p, "Output", &o);
-    set_float(p, "Jitter.Offset.X", 0);
-    set_float(p, "Jitter.Offset.Y", 0);
+    // NGX wants the sampling displacement, opposite the raster displacement.
+    // Camera motion vectors exclude jitter, so MVJittered stays unset.
+    set_float(p, "Jitter.Offset.X", -dlss.scene_jitter[0]);
+    set_float(p, "Jitter.Offset.Y", -dlss.scene_jitter[1]);
     set_float(p, "MV.Scale.X", 1);
     set_float(p, "MV.Scale.Y", 1);
     set_float(p, "DLSS.Pre.Exposure", 1);

@@ -9,6 +9,21 @@ The working branch combines the tested upscalers with the local 0.2.5 release
 changes (fog readback enabled by default and matching Windows version metadata).
 The original release checkout and previous upscaler branch remain intact.
 
+Current checkpoint (13 November 2026): 1.4.1 warp helpers are fixed locally.
+The instrumented 0.2.5 source reference reached and captured all 17 kingdoms at
+60 FPS. The current renderer also passed Cap/Cascade captures and a Cap tower
+stage change; the final GUI preview passed a Cap transition with its optional
+upscaler runtimes staged. Cap/Cascade comparisons flag localized animated
+fog/water/effect differences for review. The full 17-kingdom candidate comparison
+and interaction coverage are still pending; this is not a full-game graphics
+sign-off. Simon's private warp preview is ready for the next manual test.
+
+A separate 120 FPS / 1280x720 hidden-window save-load test crashed before its
+warp (TextureDataEx::reset, access 0x20). The 60 FPS tour passed. Its cause and
+whether it predates these test hooks are not established. Keep this case open;
+do not describe the warp fix as resolving it. The 1.0.0 named warp path is
+retained but was not rerun with a matching current game-code library here.
+
 | Order | Work | Verification before calling it finished |
 | --- | --- | --- |
 | 1a | Repair the 1.4.1 warp helpers | Cross-kingdom travel and a local stage change must reach the logged destination without a crash. Named 1.0.0 helpers must still work. |

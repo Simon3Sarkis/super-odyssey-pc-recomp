@@ -46,6 +46,33 @@ static std::atomic<bool> g_text_busy{false};  // a text field / the on-screen ke
 static std::atomic<bool> g_want_window_apply{false};
 static std::atomic<bool> g_draw_mouse_cursor{false};
 static std::atomic<int> g_last_fullscreen{BORDERLESS};
+struct DisplayChoice { SDL_DisplayID id; char label[160]; };
+static std::vector<DisplayChoice> g_displays;
+static pthread_mutex_t g_displays_mutex = PTHREAD_MUTEX_INITIALIZER;
+static std::atomic<bool> g_displays_dirty{true};
+
+// SDL display queries and window changes stay on the event thread. The renderer
+// only consumes this snapshot to draw the settings row.
+static void refresh_displays(void) {
+    if (!g_displays_dirty.exchange(false)) return;
+    int count = 0;
+    SDL_DisplayID *ids = SDL_GetDisplays(&count);
+    std::vector<DisplayChoice> choices;
+    DisplayChoice automatic = {};
+    snprintf(automatic.label, sizeof automatic.label, "Current display");
+    choices.push_back(automatic);
+    for (int i = 0; ids && i < count && i < 64; i++) {
+        DisplayChoice d = {}; d.id = ids[i];
+        const char *name = SDL_GetDisplayName(d.id);
+        const SDL_DisplayMode *mode = SDL_GetDesktopDisplayMode(d.id);
+        snprintf(d.label, sizeof d.label, "%d: %s (%d x %d)", i + 1, name ? name : "Display", mode ? mode->w : 0, mode ? mode->h : 0);
+        choices.push_back(d);
+    }
+    SDL_free(ids);
+    pthread_mutex_lock(&g_displays_mutex);
+    g_displays.swap(choices);
+    pthread_mutex_unlock(&g_displays_mutex);
+}
 extern "C" bool menu_stats_visible(void) {
     return g_settings.show_fps || g_settings.performance_overlay;
 }
@@ -194,6 +221,10 @@ extern "C" bool menu_overlay_lockfree(void) { return !capturing() && (!menu_stat
 extern "C" bool menu_input_captured(void) { return capturing(); }
 
 bool menu_handle_event(const SDL_Event *e) {
+    if (e->type == SDL_EVENT_DISPLAY_ADDED || e->type == SDL_EVENT_DISPLAY_REMOVED) {
+        g_displays_dirty.store(true);
+        g_want_window_apply.store(true);
+    }
     static SDL_JoystickID back_pad, start_pad;
     static bool stick_down[4];
     if (e->type == SDL_EVENT_WINDOW_FOCUS_GAINED) g_app_unfocused = false;
@@ -327,6 +358,7 @@ void menu_request_window_apply(void) { g_want_window_apply.store(true); }
 
 void menu_apply_window_requests(void *win) {
     SDL_Window *w = (SDL_Window *)win;
+    refresh_displays();
     g_pixel_density = SDL_GetWindowPixelDensity(w);
     static bool text_input;
     bool want_text = capturing();
@@ -345,6 +377,22 @@ void menu_apply_window_requests(void *win) {
     int mode = g_settings.window_mode;
     int height = settings_display_height(g_settings.display_resolution);
     SDL_DisplayID display = SDL_GetDisplayForWindow(w);
+    SDL_DisplayID target = 0;
+    pthread_mutex_lock(&g_displays_mutex);
+    if (g_settings.monitor > 0) {
+        target = g_settings.monitor < (int)g_displays.size() ? g_displays[g_settings.monitor].id : SDL_GetPrimaryDisplay();
+    }
+    pthread_mutex_unlock(&g_displays_mutex);
+    if (target && target != display) {
+        if (!SDL_SetWindowFullscreen(w, false) || !SDL_SetWindowFullscreenMode(w, NULL) || !SDL_SyncWindow(w) ||
+            !SDL_SetWindowPosition(w, SDL_WINDOWPOS_CENTERED_DISPLAY(target), SDL_WINDOWPOS_CENTERED_DISPLAY(target)) ||
+            !SDL_SyncWindow(w)) {
+            SDL_LogWarn(SDL_LOG_CATEGORY_VIDEO, "Could not move the game to the selected display: %s", SDL_GetError());
+            return;
+        }
+        display = SDL_GetDisplayForWindow(w);
+        SDL_Log("Game display: %s", SDL_GetDisplayName(display));
+    }
     const SDL_DisplayMode *desktop = SDL_GetDesktopDisplayMode(display);
     bool applied;
     if (mode == WINDOWED) {
@@ -554,6 +602,20 @@ static void tab_display(void) {
     float scale = ImGui::GetFontSize() / 34;
     opt_begin("##video", scale);
     opt_section("Display");
+    pthread_mutex_lock(&g_displays_mutex);
+    if (!g_displays.empty()) {
+        std::vector<const char *> labels;
+        for (const DisplayChoice &d : g_displays) labels.push_back(d.label);
+        int selected = g_settings.monitor >= 0 && g_settings.monitor < (int)labels.size() ? g_settings.monitor : 0;
+        if (opt_choice("Monitor", &selected, labels.data(), (int)labels.size(), 0,
+                       "Moves the game to the selected display. Works in windowed, borderless and exclusive fullscreen. "
+                       "Current display leaves window placement to you. Display numbers follow the connected display list; "
+                       "select again if that list changes. An unavailable display falls back to the primary display.")) {
+            g_settings.monitor = selected;
+            menu_request_window_apply();
+        }
+    }
+    pthread_mutex_unlock(&g_displays_mutex);
     static const char *window_modes[] = {"Windowed", "Borderless", "Exclusive fullscreen"};
     if (opt_choice("Display mode", &g_settings.window_mode, window_modes, WINDOW_MODE_COUNT, WINDOWED,
                    "Borderless uses the desktop's resolution. Exclusive fullscreen requests a monitor display mode. "

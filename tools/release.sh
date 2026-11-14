@@ -32,7 +32,7 @@ DECK=${DECK:-}
 REPO=Simon3Sarkis/super-odyssey-pc-recomp
 PROBE=Simon3Sarkis/sopr-catalog-probe
 BRANCH=ci/release-$VERSION
-WORK=$(mktemp -d)
+WORK=$(cygpath -m "$(mktemp -d)")  # (C:/... form: gh and the other Windows programs get it as is)
 SSH="/c/Windows/System32/OpenSSH/ssh.exe -o BatchMode=yes -o ConnectTimeout=10"
 SCP="/c/Windows/System32/OpenSSH/scp.exe -q -o BatchMode=yes"
 export MSYS_NO_PATHCONV=1  # (Git Bash would rewrite /tmp/... and /retest-style arguments)
@@ -47,11 +47,11 @@ probe() {  # url -> runs the catalog probe on it, fails unless both of its check
 }
 
 say "1/7  version $VERSION"
-[ -z "$(git status --porcelain --untracked-files=no)" ] || { echo "commit or stash your changes first"; exit 1; }
+git diff --quiet HEAD -- . ':!runtime/version.h' ':!runtime/platform/windows.rc' || { echo "commit or stash your changes first"; exit 1; }
 sed -i "s/#define APP_VERSION \".*\"/#define APP_VERSION \"$VERSION\"/" runtime/version.h
 sed -i "s/VALUE \"FileVersion\", \".*\"/VALUE \"FileVersion\", \"$VERSION\"/;
         s/VALUE \"ProductVersion\", \".*\"/VALUE \"ProductVersion\", \"$VERSION\"/" runtime/platform/windows.rc
-git commit -qam "Super Odyssey PC Recomp $VERSION"
+git diff --quiet || git commit -qam "Super Odyssey PC Recomp $VERSION"  # (a rerun: already bumped)
 SHA=$(git rev-parse HEAD)
 
 say "2/7  GitHub builds both packages ($BRANCH)"

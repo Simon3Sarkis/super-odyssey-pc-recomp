@@ -14,6 +14,24 @@
 > **This is an early preview.** The whole game can be played, but there are known issues (see
 > [Known issues](#known-issues)) and things that still need fixing. Please report what you find.
 
+## Current focus
+
+Updates will come **more slowly** for a while: the maintainer works a day job and has limited time, but the project
+continues. The order of work:
+
+1. **The same as on the Switch, at 60 FPS.** Every kingdom compared with the Switch version (recordings and
+   captures, side by side): rendering, effects, shadows, behaviour and timing. Any difference gets fixed, so that the
+   port plays and looks 1:1 with the original.
+2. **No stutter.** The shader preparation is being reworked to cover everything the game draws, to finish faster and
+   to take far less disk space, so a first visit to a kingdom or effect never hitches. Smooth, stable frame pacing
+   matters more here than higher numbers.
+3. **The open [issues](../../issues)**: crashes at start, slow performance on some AMD / Linux setups and handhelds,
+   controller fixes.
+4. Then **90 and 120 FPS**, and new features (frame generation, sharper HUD text, more graphics options, Steam Deck
+   controller layout).
+
+Releases will only go out once they've been tested on Windows and a Steam Deck with both game versions.
+
 ## What it is
 
 The game's ARM64 code is translated to C ahead of time and compiled into a regular Windows program - no emulator runs
@@ -59,6 +77,14 @@ You can also download the new zip from [Releases](../../releases) and extract it
 
 This is a preview. Known problems and things not done yet:
 
+- **Being worked on** (from the [issues](../../issues)):
+  - Crashes at start or in the first kingdom on some PCs (#19, #21).
+  - Very low FPS on some AMD graphics cards on Linux (#28, #32), and slowdown on the ROG Ally (#13).
+  - High memory use (#7).
+  - Upscaler jitter and bloom quality (#24); Mario's shadow can look distorted (#26).
+  - With a Switch controller, the map pointer doesn't select icons (#22); *Skip controller tips* doesn't skip
+    them (#23).
+- **Version 1.4.1 at 90 or 120 FPS can crash while loading Wooded Kingdom.** Use 60 FPS there for now.
 - **Version 1.4.1** is newer in this port than 1.0.0 and less tested: native 90/120 FPS and the frame interpolation's
   pose smoothing are tuned on 1.0.0, so 1.4.1 can show more jitter or small glitches with them on.
 - **Native 90 and 120 FPS** are experimental on both versions: some objects or effects can move unevenly or look doubled.
@@ -167,7 +193,20 @@ Needs MSYS2 (UCRT64: clang, SDL3, FFmpeg, shaderc, Python) - `tools\setup_window
   (`runtime/ui/setup.mm`), the game code build (`runtime/gamebuild.c`) and the updater (`runtime/updater.c`).
 - Debugging tools are environment variables (`ODYSSEY_*`), documented where they're read.
 
-Built with heavy help from AI coding agents, directed and tested by a human.
+## Who made this
+
+**The code of this port was written by AI, not by the maintainer.** Nearly all of it was written by **Claude**
+(Anthropic's AI model, working through Claude Code): the recompiler's patches, the runtime, the Vulkan renderer, the
+installer, the Linux version and the release pipeline. OpenAI's **Codex** contributed a number of fixes and features.
+
+The maintainer, [Simon3Sarkis](https://github.com/Simon3Sarkis), hasn't written the code. What they do:
+
+- decide what gets worked on and in what order, and what's good enough to ship
+- test every build on their own PC and a Steam Deck, on both game versions, before anything is released
+- play through the game to find bugs, reproduce what players report, and compare the port with the Switch version
+- run the project: the issues, the replies to players, the releases
+
+Bug reports are read and worked on the same way: the maintainer tests, and Claude writes the fix.
 
 ## Credits
 

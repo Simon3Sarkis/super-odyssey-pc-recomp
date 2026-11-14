@@ -81,18 +81,20 @@ echo "ok: $(grep -a fps "$WORK/windows.log" | tail -1 | cut -c1-50); look at $WO
 
 say "4/7  Linux on the Steam Deck"
 if [ -n "$DECK" ] && timeout 15 $SSH "$DECK" true 2>/dev/null; then
-    timeout 300 $SCP "$(cygpath -m "$APP")" "$DECK:sopr/build/dist/"
-    timeout 600 $SSH "$DECK" "
-        cd ~/sopr && ls build/dist/*.AppImage | grep -v '$VERSION' | xargs -r rm -f
-        sed -i 's/\*0\.[0-9.]*\*\.AppImage/*.AppImage/' ai-case.sh deck-boot-ov.sh  # (any version's)
+    # (one fixed name the Deck's scripts use: ~/sopr/ai-case.sh, ~/sopr/deck-boot-ov.sh - its test data folder, never
+    # the real install; a game code rebuild there takes ~20 min before its 2 minutes of play)
+    timeout 300 $SCP "$APP" "$DECK:sopr/build/release-check.AppImage"
+    timeout 3400 $SSH "$DECK" "
+        cd ~/sopr && chmod +x build/release-check.AppImage
         bash ai-case.sh nogpu 2>&1 | grep '=='; bash ai-case.sh normal 2>&1 | grep '=='
         systemctl --user reset-failed sopr-boot 2>/dev/null; rm -f build/boot-test.log
         systemd-run --user --collect --unit=sopr-boot /home/deck/sopr/deck-boot-ov.sh >/dev/null 2>&1
-        for i in \$(seq 1 40); do grep -q DONE build/boot-test.log 2>/dev/null && break; sleep 5; done
+        for i in \$(seq 1 660); do grep -q DONE build/boot-test.log 2>/dev/null && break; sleep 5; done
         cat build/boot-test.log" | tee "$WORK/deck.log"
     grep -q "nogpu: window: *0x" "$WORK/deck.log" || { echo "no window on the Deck without a Vulkan driver"; exit 1; }
     grep -q "normal: window: *0x" "$WORK/deck.log" || { echo "no window on the Deck at a first start"; exit 1; }
     grep -q "still running after 120" "$WORK/deck.log" || { echo "the Deck's 2-minute run ended early"; exit 1; }
+    grep -q "errors in the log: 0" "$WORK/deck.log" || { echo "the Deck's run logged an error"; exit 1; }
     timeout 60 $SCP "$DECK:/run/media/deck/SN01T/Super Odyssey/game/build/window.png" "$(cygpath -m "$WORK/deck.png")" || true
     echo "ok; look at $WORK/deck.png"
 else

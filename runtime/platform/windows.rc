@@ -19,8 +19,8 @@ BEGIN
             VALUE "FileDescription", "Super Odyssey PC Recomp"
             VALUE "ProductName", "Super Odyssey PC Recomp"
             VALUE "InternalName", "SuperOdysseyRecomp"
-            VALUE "FileVersion", "0.2.8"
-            VALUE "ProductVersion", "0.2.8"
+            VALUE "FileVersion", "0.2.9"
+            VALUE "ProductVersion", "0.2.9"
             VALUE "OriginalFilename", "SuperOdysseyRecomp.exe"
             VALUE "LegalCopyright", "MIT License. Not affiliated with Nintendo."
         END

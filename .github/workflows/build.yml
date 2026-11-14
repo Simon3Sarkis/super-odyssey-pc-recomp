@@ -1,6 +1,6 @@
 # The Windows zip and the Linux AppImage, built from a clean checkout on GitHub's machines, kept as downloadable
 # artifacts of each run (Actions > the run > Artifacts). Nothing is published: releases stay a manual step
-# (tools/release.sh), which tests these packages first. No game files, keys or game code are involved: the packages
+# (tools/release.sh), which tests these packages first. No game files or game code are involved: the packages
 # hold the app and the setup's tools only, and players build the game code from their own copy.
 name: build
 

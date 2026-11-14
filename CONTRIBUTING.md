@@ -6,13 +6,13 @@ Bug reports, testing on different hardware and code contributions are welcome.
 
 Nothing owned by Nintendo may ever be committed or attached to an issue or pull request:
 
-- no copies of the game in any form (NSP, XCI, NCA, extracted folders), no keys (`prod.keys`, `title.keys`)
+- no copies of the game in any form (NSP, XCI, NCA, extracted folders)
 - no extracted game files (`extracted/`), no generated code (`generated/`), no game code library
   (`odyssey_game.dll`), no fonts (`.bfttf` / Switch `.ttf`)
 - no game assets of any kind: textures, models, music, text, level files - also not "just one file for testing"
 
 `.githooks/pre-commit` refuses such files (`git config core.hooksPath .githooks`). Screenshots and short clips of the
-game in bug reports are fine. Logs are fine too: the setup never writes key values into them.
+game in bug reports are fine. Logs are fine too.
 
 ## Reporting bugs
 

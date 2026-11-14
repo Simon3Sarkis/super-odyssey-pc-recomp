@@ -5,10 +5,10 @@
 <p align="center"><b>A native PC port of Super Mario Odyssey for Windows and Linux, made by static recompilation - from your own copy of the game.</b></p>
 
 > [!IMPORTANT]
-> **You must bring your own game.** This project contains **no game files, no game code, no assets and no keys** -
+> **You must bring your own game.** This project contains **no game files, no game code and no assets** -
 > only the installer and the source code. To play, you need the **`exefs` and `romfs` folders of your own copy of
 > Super Mario Odyssey**, already extracted. Instructions for getting game files are
-> not provided, and requests for game files or keys will be closed.
+> not provided, and requests for game files will be closed.
 
 > [!WARNING]
 > **This is an early preview.** The whole game can be played, but there are known issues (see
@@ -94,7 +94,7 @@ This is a preview. Known problems and things not done yet:
 - **Code mods** (exefs patches, IPS / pchtxt, online mods) can't be used: the game code is rebuilt from the original.
   RomFS mods work.
 - **Windows Defender** may flag the new, unsigned program by its machine-learning guess (a `!ml` detection) - it
-  decrypts a file, builds code and starts helper programs, which looks unusual. Please report it as a false positive at
+  reads game files, builds code and starts helper programs, which looks unusual. Please report it as a false positive at
   https://www.microsoft.com/wdsi/filesubmission and open an issue with the detection name.
 - **Linux and Steam Deck are experimental**: less tested than Windows ([docs/linux.md](docs/linux.md)). A CPU with
   AVX2 and a Vulkan 1.3 GPU are required everywhere.
@@ -238,7 +238,7 @@ The installer's pixel-art background and the icon are original artwork made for 
 ## Legal
 
 This is a fan project. It is not affiliated with, endorsed by or sponsored by Nintendo. *Super Mario Odyssey* and
-*Nintendo Switch* are trademarks of Nintendo. No game files, game code, assets, fonts or keys are included in this
+*Nintendo Switch* are trademarks of Nintendo. No game files, game code, assets or fonts are included in this
 repository or its releases, and nothing built from your game files (`extracted/`, `generated/`, `odyssey_game.dll`)
 may be shared. You must provide the extracted files of your own legally obtained copy of the game.
 

@@ -4,6 +4,12 @@
 
 <p align="center"><b>A native PC port of Super Mario Odyssey for Windows and Linux, made by static recompilation - from your own copy of the game.</b></p>
 
+> [!NOTE]
+> **This is an AI-made project.** The code of this port was written by AI: almost all of it by **Claude**
+> (Anthropic's AI model, through Claude Code), with some fixes and features from OpenAI's **Codex**. The maintainer
+> doesn't write the code; they direct the work, test every build on Windows and a Steam Deck, and run the releases.
+> See [Who made this](#who-made-this).
+
 > [!IMPORTANT]
 > **You must bring your own game.** This project contains **no game files, no game code and no assets** -
 > only the installer and the source code. To play, you need the **`exefs` and `romfs` folders of your own copy of

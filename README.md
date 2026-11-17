@@ -2,13 +2,26 @@
 
 <p align="center"><img src="docs/banner.svg" alt="Super Odyssey PC Recomp" width="100%"></p>
 
+<p align="center">
+  <a href="../../releases/latest"><b>Download</b></a> ·
+  <a href="#get-started">Get started</a> ·
+  <a href="docs/STATUS.md">Status</a> ·
+  <a href="#known-issues">Known issues</a> ·
+  <a href="../../issues">Issues</a> ·
+  <a href="docs/release-notes-0.4.0.md">Release notes</a>
+</p>
+
 <p align="center"><b>A native PC port of Super Mario Odyssey for Windows and Linux, made by static recompilation - from your own copy of the game.</b></p>
 
-> [!NOTE]
-> **This is an AI-made project.** The code of this port was written by AI: almost all of it by **Claude**
-> (Anthropic's AI model, through Claude Code), with some fixes and features from OpenAI's **Codex**. The maintainer
-> doesn't write the code; they direct the work, test every build on Windows and a Steam Deck, and run the releases.
-> See [Who made this](#who-made-this).
+<p align="center">
+  <img src="docs/media/screenshots/shot-1.jpg" alt="Screenshot of Super Odyssey PC Recomp" width="24%">
+  <img src="docs/media/screenshots/shot-2.jpg" alt="Screenshot of Super Odyssey PC Recomp" width="24%">
+  <img src="docs/media/screenshots/shot-3.jpg" alt="Screenshot of Super Odyssey PC Recomp" width="24%">
+  <img src="docs/media/screenshots/shot-4.jpg" alt="Screenshot of Super Odyssey PC Recomp" width="24%">
+</p>
+<p align="center"><sub>Captured in this port at 3840 x 2160, Frame rate 240, on the maintainer's PC. The game is © Nintendo; you need your own copy to run it.</sub></p>
+
+<p align="center"><img src="docs/media/progress/overall.svg" alt="Overall progress" width="420"></p>
 
 > [!IMPORTANT]
 > **You must bring your own game.** This project contains **no game files, no game code and no assets** -
@@ -16,129 +29,120 @@
 > Super Mario Odyssey**, already extracted. Instructions for getting game files are
 > not provided, and requests for game files will be closed.
 
+> [!NOTE]
+> **This is an AI-made project.** The code of this port was written by AI: almost all of it by **Claude**
+> (Anthropic's AI model, through Claude Code), with some fixes and features from OpenAI's **Codex**. The maintainer
+> doesn't write the code; they direct the work, test every build on Windows and a Steam Deck, and run the releases.
+> See [Who made this](#who-made-this).
+
 > [!WARNING]
-> **This is an early preview.** The whole game can be played, but there are known issues (see
-> [Known issues](#known-issues)) and things that still need fixing. Please report what you find.
+> **This is a preview.** The whole game can be played from start to end, but there are known issues (see
+> [Known issues](#known-issues)). Please report what you find.
 
-## Current focus
+## Features
 
-1. **The same as on the Switch, at 60 FPS.** Every kingdom compared with the Switch version (recordings and
-   captures, side by side): rendering, effects, shadows, behaviour and timing. Any difference gets fixed, so that the
-   port plays and looks 1:1 with the original.
-2. **No stutter.** The shader preparation is being reworked to cover everything the game draws, to finish faster and
-   to take far less disk space, so a first visit to a kingdom or effect never hitches. Smooth, stable frame pacing
-   matters more here than higher numbers.
-3. **The open [issues](../../issues)**: crashes at start, slow performance on some AMD / Linux setups and handhelds,
-   controller fixes.
-4. Then **90 and 120 FPS**, and new features (frame generation, sharper HUD text, more graphics options, Steam Deck
-   controller layout).
+- **The whole game**, on game version **1.0.0** or **1.4.1**, recompiled on your PC from your own files - no emulator
+  runs while you play
+- **Frame rates from 60 to 240 FPS**, every frame really drawn, gameplay at the Switch's speed; **Match display** picks
+  the smoothest rate for your screen; game speed stays real time when frames drop
+- **Resolutions up to 4K and beyond**: up to 4x internal resolution, with the **HUD drawn at full resolution**
+- **Upscaling and anti-aliasing**: NVIDIA **DLSS / DLAA**, AMD **FSR 2 / 3.1 / 4**, Intel **XeSS**, FSR 1, SMAA, FXAA;
+  **frame generation** (AMD FSR, NVIDIA DLSS beta) with NVIDIA Reflex
+- **No shader stutter**: every shader compiled ahead of play, and again by itself after a driver or game update
+- **Any screen shape**: 16:9, 16:10, 21:9, 32:9, 4:3 or Fill window, with the HUD at the edges on ultrawide
+- **Shadow quality and texture detail** options, the game's own dynamic resolution on or off
+- **Keyboard and mouse** with a real mouse camera and mouse in the game's menus; **any controller**, Joy-Con pairs,
+  **motion controls as on the Switch**; button prompts that match your device
+- **Steam Deck**: 1280x800 at 60 FPS at 10 W in Gaming Mode, with Deck defaults
+- **RomFS mods**, the **Brazilian Portuguese** fan translation, 5.1 surround, Discord activity (off by default)
+- **One-click updates** from the in-game menu, crash reports with one button
 
-Releases will only go out once they've been tested on Windows and a Steam Deck with both game versions.
+## Get started
 
-## What it is
+**You need:** Windows 10 / 11 (x64), or Linux / Steam Deck (experimental); a GPU with Vulkan 1.3; 8 GB RAM (16 GB
+recommended); about 12 GB free disk space; a 64-bit CPU (AVX2 recommended, older CPUs supported but slower); and the
+extracted `exefs` and `romfs` folders of your own Super Mario Odyssey (1.0.0, or 1.4.1 with the update applied).
 
-The game's ARM64 code is translated to C ahead of time and compiled into a regular Windows program - no emulator runs
-while you play. The parts of the Switch the game talks to (kernel, system services, the NVN graphics API, audio) are
-reimplemented on the PC, with Vulkan for graphics.
-
-- **Installer** that takes your game's extracted `exefs` and `romfs` folders (1.0.0, or 1.4.1 with the update applied)
-- **Every shader compiled ahead of play** (and again by itself after a GPU driver or game update), so effects don't
-  stutter the first time they appear - see [How the shader stutter was solved](#how-the-shader-stutter-was-solved)
-- **Frame rates from 60 up to 240 FPS**, every frame really drawn, with **Match display** picking the smoothest rate
-  for your screen
-- **Up to 4x internal resolution**, NVIDIA **DLSS / DLAA**, AMD **FSR 2 / 3.1 / 4**, Intel **XeSS**, FSR 1, SMAA - with
-  the **HUD drawn at full resolution** over the upscaled picture - and frame generation (AMD FSR, NVIDIA DLSS beta)
-  with NVIDIA Reflex
-- **Any screen shape**: 16:9, 16:10, 21:9, 32:9, 4:3 or Fill window, with the **HUD at the edges** on ultrawide
-- **Motion controls as on the Switch** (the game's 200 Hz sensor history), mouse camera, 5.1 surround
-- Keyboard and controller rebinding, RomFS mods, an in-game settings menu, and **built-in updates** from this page
-
-Windows 10 / 11 (x64). **Linux and Steam Deck: experimental** - an AppImage, see [docs/linux.md](docs/linux.md).
-
-## Install
-
-1. Download the latest `...-windows.zip` from [Releases](../../releases) and extract it anywhere
-   you own (for example `D:\Games`, **not** Program Files). Start `SuperOdysseyRecomp.exe`.
-   It isn't code-signed: if SmartScreen says "Windows protected your PC", choose *More info*, then *Run anyway*.
-2. The installer asks for:
-   1. **Your game**: the folder that holds the extracted **`exefs`** and **`romfs`** folders of your own Super Mario
-      Odyssey - version **1.0.0**, or **1.4.1** with the update already applied (its full `romfs`, not only the
-      update's). `exefs` holds `main`, `main.npdm` and `sdk`; `romfs` holds folders such as `StageData` and
-      `SystemData`.
-   2. **Install the game to**: where the game data, saves and shaders go (about 12 GB).
+1. Download the latest build from [Releases](../../releases/latest):
+   - **Windows:** the file ending in `windows.zip`. Extract it anywhere you own (for example `D:\Games`, **not**
+     Program Files) and start `SuperOdysseyRecomp.exe`. It isn't code-signed: if SmartScreen says "Windows protected
+     your PC", choose *More info*, then *Run anyway*.
+   - **Linux and Steam Deck:** the file ending in `x86_64.AppImage`. Make it executable and run it
+     ([docs/linux.md](docs/linux.md)).
+2. The installer asks for **your game** (the folder holding `exefs` and `romfs`; for 1.4.1 the full `romfs` with the
+   update applied, not only the update's) and **where to install** (game data, saves and shaders, about 12 GB).
 3. Press **Install**. It copies the game data, recompiles the game code for your PC (a few minutes) and compiles every
-   shader (several minutes, once).
-4. Press **Play**. The game opens in fullscreen; later starts go straight to the game.
+   shader (several minutes, once). Your own files aren't changed.
+4. Press **Play**.
 
 <p align="center"><img src="docs/installer.png" alt="The installer" width="80%"></p>
 
-## Updating
+**Updating:** the game checks for new versions at start (only GitHub is contacted; you can switch this off). Menu
+(**F1**) > **Updates** > **Download and install**, then **Restart now**. Or extract the new zip over your folder.
+Your game files, saves, settings and mods stay; shaders are prepared again once if needed.
 
-New versions are published on this page. The game checks for them at start (in the background - only GitHub is
-contacted and nothing about you or your game is sent; you can switch this off) and shows a note when one is out.
-Open the menu (**F1**) > **Updates** > **Download and install**, then **Restart now**. Your game files, saves,
-settings and mods stay; if the new version needs it, the game code is rebuilt and the shaders re-prepared once, by
-themselves.
+## Status
 
-You can also download the new zip from [Releases](../../releases) and extract it over your current folder.
+| Area | Progress |
+|---|---|
+| Core game | ![Core game](docs/media/progress/area-core-game.svg) |
+| Stability | ![Stability](docs/media/progress/area-stability.svg) |
+| Performance | ![Performance](docs/media/progress/area-performance.svg) |
+| Graphics options | ![Graphics options](docs/media/progress/area-graphics-options.svg) |
+| Platforms and input | ![Platforms and input](docs/media/progress/area-platforms-and-input.svg) |
+| Player features | ![Player features](docs/media/progress/area-player-features.svg) |
+
+What each area covers, what is done and what is left: [docs/STATUS.md](docs/STATUS.md).
+
+### Current focus
+
+1. **No crashes, no stutter, steady memory.** Every release is tested on Windows and a Steam Deck, with both game
+   versions, before it goes out.
+2. **1:1 with the Switch at 60 FPS**: every kingdom compared with the Switch version, side by side.
+3. **Lower CPU use**, so high frame rates and low-end PCs run better.
 
 ## Known issues
 
-This is a preview. Known problems and things not done yet:
+- **Entering a painting above 60 FPS on game 1.0.0 can crash** (#85, #72). Use Frame rate 60 for paintings until
+  it's fixed.
+- **Switching the upscaler while FSR frame generation is on can crash** (#77): turn frame generation off first.
+- **Linux with AMD RX 7000 GPUs** can hang the GPU when play starts (#21).
+- **Sound crackling or distortion** has been reported on 0.4.0 (#83, #84).
+- **Upscalers in some cutscenes** can show broken blocks where the game lowers its own resolution (#66).
+- **Linux and Steam Deck are experimental**: less tested than Windows ([docs/linux.md](docs/linux.md)). The Steam
+  Deck's own gyro isn't read yet (#68).
+- **Online features** (anything that needs Nintendo's servers) don't work. **Code mods** (exefs patches, IPS /
+  pchtxt) can't be used: the game code is rebuilt from the original. RomFS mods work.
+- **Windows Defender** may flag the new, unsigned program by its machine-learning guess (a `!ml` detection). Please
+  report it as a false positive at https://www.microsoft.com/wdsi/filesubmission and open an issue with the name.
 
-- **Being worked on** (from the [issues](../../issues)):
-  - Crashes at start or in the first kingdom on some PCs (#19, #21).
-  - Very low FPS on some AMD graphics cards on Linux (#28, #32), and slowdown on the ROG Ally (#13).
-  - High memory use (#7).
-  - Upscaler jitter and bloom quality (#24); Mario's shadow can look distorted (#26).
-  - With a Switch controller, the map pointer doesn't select icons (#22). The game's own Joy-Con tips while
-    playing can't be turned off (#23): the setting only skips the controller screen at start.
-- **Version 1.4.1 at 90 or 120 FPS can crash while loading Wooded Kingdom.** Use 60 FPS there for now.
-- **Version 1.4.1** is newer in this port than 1.0.0 and less tested: native 90/120 FPS is tuned on 1.0.0, so 1.4.1
-  can show more jitter or small glitches with it on.
-- **Native 90 and 120 FPS** are experimental on both versions: some objects or effects can move unevenly or look doubled.
-- **A short stutter can still happen** the first time a rare effect is drawn whose pipeline state nobody has recorded
-  yet. It's prepared then and kept for next time.
-- **Online features** of the game (anything that needs Nintendo's servers) don't work.
-- **Code mods** (exefs patches, IPS / pchtxt, online mods) can't be used: the game code is rebuilt from the original.
-  RomFS mods work.
-- **Windows Defender** may flag the new, unsigned program by its machine-learning guess (a `!ml` detection) - it
-  reads game files, builds code and starts helper programs, which looks unusual. Please report it as a false positive at
-  https://www.microsoft.com/wdsi/filesubmission and open an issue with the detection name.
-- **Linux and Steam Deck are experimental**: less tested than Windows ([docs/linux.md](docs/linux.md)). A Vulkan 1.3
-  GPU is required everywhere.
-- Graphics glitches can show up in places nobody has tested yet - please report them with a screenshot.
+All open reports: [issues](../../issues).
 
 ## Reporting a problem
 
 Open an [issue](../../issues) with:
 
-- what happened and where in the game (a screenshot helps),
-- your game version (1.0.0 or 1.4.1), Windows version, CPU and GPU,
-- the log, `SuperOdysseyRecomp.log`, from the install folder (it doesn't contain any game files).
+- what happened and where in the game (a screenshot or video helps),
+- your game version (1.0.0 or 1.4.1), Windows / Linux / Steam Deck, CPU and GPU,
+- the crash report (the **Copy crash report** button), or the log `SuperOdysseyRecomp.log` from the install folder
+  (it's overwritten at each start, so grab it right after the problem; it contains no game files).
 
-For a graphics glitch, pressing **F9** where it happens saves the frame's details into the log, which helps a lot.
-
-## What you need
-
-- Windows 10 / 11 (x64), a 64-bit CPU - AVX2 (Intel Haswell / AMD Zen or newer) recommended; older CPUs without AVX2
-  (Intel Sandy / Ivy Bridge and earlier) are supported but slower - a GPU with Vulkan 1.3 and an up-to-date driver
-- 8 GB RAM (16 GB recommended), about 12 GB free disk space
-- The extracted `exefs` and `romfs` folders of your own Super Mario Odyssey (1.0.0, or 1.4.1 with the update applied)
+For a graphics glitch, pressing **F9** where it happens saves the frame's details into the log.
 
 ## Settings
 
 Open the menu with **F1** or **Esc** (controller: Home / Guide button). Switch tabs with L / R (Q / E); the text on
-the right explains the selected setting.
+the right explains the selected setting and what is recommended.
 
-- **Display**: windowed, borderless or exclusive fullscreen, display resolution, aspect ratio (ultrawide *Fill window*)
-- **Graphics**: internal resolution, NVIDIA DLSS / DLAA (presets, sharpening), AMD FSR 1, SMAA, anisotropic
-  filtering, smooth gradients
-- **Performance**: 90 or 120 FPS (native) or 120 interpolated, shader preloading and warm-up, FPS counter and performance
-  overlay, compile shaders again at the next start
-- **Audio**: volume, reverb, movie audio, mute in background
-- **Controls**: language, motion controls, vibration, stick deadzone, mouse camera (sensitivity, invert), button
-  prompts (keyboard, Xbox, PlayStation, Switch), skip the start-up controller screen, key and button rebinding
+- **Display**: windowed, borderless or exclusive fullscreen, display resolution and refresh rate, aspect ratio, VSync
+  (On, Fast, Adaptive, Off)
+- **Graphics**: internal resolution, upscaling (DLSS / DLAA, FSR 2 / 3.1 / 4, XeSS, FSR 1), anti-aliasing (SMAA,
+  FXAA), frame generation, shadow quality, texture detail, anisotropic filtering, the game's dynamic resolution
+- **Performance**: frame rate (60 to 240, Match display), early frame hand-off, multithreaded rendering, shader
+  options, performance overlay, Discord activity
+- **Audio**: volume, reverb, movie audio, audio output, mute in background
+- **Controls**: language, motion controls, vibration, stick deadzone, mouse camera, button prompts, skip the start-up
+  controller screen, key and button rebinding
 - **Mods**: switch RomFS mods on and off
 - **Updates**: this version, check / install updates, the project page
 

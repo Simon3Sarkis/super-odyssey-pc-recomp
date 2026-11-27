@@ -26,6 +26,10 @@ extern "C" {
 #define RT_LINUX_DIR "super-odyssey-pc-recomp"  // Linux: the data folder's and the settings folder's name
 
 void rt_paths_init(void);         // first thing in main(), after plat_init
+// Rule 3's folder in root (n bytes). true: started by RecompLauncher, so it is the launcher's data folder
+// (RECOMPLAUNCHER_DATA) instead - unless the game is already set up in rule 3's folder (false, root left there).
+// (Linux's log uses it before rt_paths_init: the log goes where the data goes. Windows: after rt_paths_init only.)
+bool rt_launcher_data_root(char *root, size_t n);
 const char *rt_data_root(void);   // absolute
 // The installer's "Install the game to": the data root becomes dir (made if needed; the working directory too) and is
 // remembered in data-folder.txt - Windows next to the exe (removed again for the exe's own folder), Linux in

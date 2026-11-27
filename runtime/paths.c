@@ -114,6 +114,36 @@ static void read_data_folder(char *named, size_t n) {
     named[strcspn(named, "\r\n")] = 0;
 }
 
+bool rt_launcher_data_root(char *root, size_t n) {
+    // the folder the installer was told to put the game in (data_folder_file), else the OS's usual place
+    char named[1024];
+    read_data_folder(named, sizeof named);
+#ifdef _WIN32
+    snprintf(root, n, "%s", named[0] ? named : g_exe_dir);
+#elif defined(__linux__)
+    // $XDG_DATA_HOME/super-odyssey-pc-recomp, ~/.local/share/super-odyssey-pc-recomp by default
+    const char *xdg = getenv("XDG_DATA_HOME"), *home = getenv("HOME");
+    if (named[0]) snprintf(root, n, "%s", named);
+    else if (xdg && *xdg == '/') snprintf(root, n, "%s/" RT_LINUX_DIR, xdg);
+    else snprintf(root, n, "%s/.local/share/" RT_LINUX_DIR, home && *home ? home : "/tmp");
+#else
+    const char *home = getenv("HOME");
+    snprintf(root, n, "%s/Library/Application Support/" RT_BUNDLE_ID, home && *home ? home : "/tmp");
+#endif
+    // Started by RecompLauncher (its recomplauncher.json): everything in the data folder it gives
+    // (RECOMPLAUNCHER_DATA, <install>/recompdata), so the launcher moves, backs up and removes it with the game - unless
+    // the game is already set up in its usual place (players who installed through the launcher before it passed
+    // one): that stays where it is, nothing is moved.
+    const char *rl = getenv("RECOMPLAUNCHER_DATA");
+    if (!rl || !*rl) return false;
+    char main_nso[1100];
+    snprintf(main_nso, sizeof main_nso, "%s" SEP "extracted" SEP "exefs" SEP "main", root);
+    FILE *f = fopen(main_nso, "rb");
+    if (f) return fclose(f), false;
+    snprintf(root, n, "%s", rl);
+    return true;
+}
+
 void rt_paths_init(void) {
     if (!getcwd(g_start, sizeof g_start)) g_start[0] = 0;
     if (plat_exe_path(g_exe_dir, sizeof g_exe_dir)) {
@@ -128,33 +158,9 @@ void rt_paths_init(void) {
     else if (g_exe_dir[0] && is_dir_in(g_exe_dir, ".." SEP "extracted"))  // build/SuperOdysseyRecomp.exe from a shortcut
         snprintf(root, sizeof root, "%s" SEP "..", g_exe_dir), g_dev = true;
     else {
-        // the folder the installer was told to put the game in (data_folder_file), else the OS's usual place
-        char named[1024];
-        read_data_folder(named, sizeof named);
-#ifdef _WIN32
-        snprintf(root, sizeof root, "%s", named[0] ? named : g_exe_dir);
-#elif defined(__linux__)
-        // $XDG_DATA_HOME/super-odyssey-pc-recomp, ~/.local/share/super-odyssey-pc-recomp by default
-        const char *xdg = getenv("XDG_DATA_HOME"), *home = getenv("HOME");
-        if (named[0]) snprintf(root, sizeof root, "%s", named);
-        else if (xdg && *xdg == '/') snprintf(root, sizeof root, "%s/" RT_LINUX_DIR, xdg);
-        else snprintf(root, sizeof root, "%s/.local/share/" RT_LINUX_DIR, home && *home ? home : "/tmp");
-#else
-        const char *home = getenv("HOME");
-        snprintf(root, sizeof root, "%s/Library/Application Support/" RT_BUNDLE_ID, home && *home ? home : "/tmp");
-#endif
-        // Started by RecompLauncher (its recomplauncher.json): everything in the data folder it gives
-        // (RECOMPLAUNCHER_DATA, <install>/recompdata), so the launcher moves, backs up and removes it with the game - unless
-        // the game is already set up in its usual place (players who installed through the launcher before it passed
-        // one): that stays where it is, nothing is moved.
         const char *rl = getenv("RECOMPLAUNCHER_DATA");
-        if (rl && *rl) {
-            char main_nso[1100];
-            snprintf(main_nso, sizeof main_nso, "%s" SEP "extracted" SEP "exefs" SEP "main", root);
-            FILE *f = fopen(main_nso, "rb");
-            if (f) fclose(f), fprintf(stderr, "[paths] RecompLauncher: the game is set up in %s: kept there\n", root);
-            else snprintf(root, sizeof root, "%s", rl);
-        }
+        if (!rt_launcher_data_root(root, sizeof root) && rl && *rl)
+            fprintf(stderr, "[paths] RecompLauncher: the game is set up in %s: kept there\n", root);
     }
     mkdirs(root);
     char msg[1400];

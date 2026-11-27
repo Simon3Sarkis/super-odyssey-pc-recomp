@@ -65,7 +65,9 @@ The install folder you chose (default `~/.local/share/super-odyssey-pc-recomp`, 
 - `save/` - your saves, `cache/` - compiled shaders, `settings.ini` - settings
 
 The log, `SuperOdysseyRecomp.log`, is always in `~/.local/share/super-odyssey-pc-recomp` (on the internal drive,
-wherever the game is installed); started from a terminal, it prints there instead.
+wherever the game is installed); started from a terminal, it prints there instead. Started from RecompLauncher, it
+is in the launcher's data folder with the rest of the game's files (unless the game was already set up in
+`~/.local/share/super-odyssey-pc-recomp` before: then it stays there).
 
 `ODYSSEY_DATA_ROOT=<dir>` uses another folder for one start.
 

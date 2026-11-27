@@ -138,8 +138,8 @@ void plat_thread_realtime(uint64_t period_ns) {
 }
 
 // ---- process
-// Started from a desktop there is no terminal: stdout / stderr go to SuperOdysseyRecomp.log in the data folder
-// (runtime/paths.h; rt_paths_init runs later, so the same rule is applied here). Processes started by this one (the
+// Started from a desktop there is no terminal: stdout / stderr go to SuperOdysseyRecomp.log in the default data folder,
+// or RecompLauncher's when the data root goes there (runtime/paths.h; rt_paths_init runs later). Processes started by this one (the
 // re-exec for a fresh address layout) append to the same log.
 static char g_log_path[1024];
 static int g_parent_stdout = -1;  // (the stdout this process was given, before it went into the log)
@@ -152,6 +152,8 @@ static void log_to_file_without_terminal(void) {
     struct stat st;
     if (env && *env) snprintf(dir, sizeof dir, "%s", env);
     else if (stat("extracted", &st) == 0 && S_ISDIR(st.st_mode)) return;  // dev mode: wherever stderr goes already
+    // started by RecompLauncher: in its data folder, where the data root goes (the launcher's Logs, crash reports)
+    else if (rt_launcher_data_root(dir, sizeof dir)) {}
     // (before the data root is known: the default one, on the internal drive - small, whatever folder the game is in)
     else if (xdg && *xdg == '/') snprintf(dir, sizeof dir, "%s/" RT_LINUX_DIR, xdg);
     else snprintf(dir, sizeof dir, "%s/.local/share/" RT_LINUX_DIR, home && *home ? home : "/tmp");
